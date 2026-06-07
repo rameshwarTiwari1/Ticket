@@ -1,0 +1,104 @@
+<div class="approver-page">
+  <header class="approver-header">
+    <h2>Approver Registry</h2>
+    <a routerLink="/dashboard" class="btn btn-link">← Back to dashboard</a>
+  </header>
+
+  <p class="hint">
+    Approvers are auto-selected when a ticket is created, by the ticket's
+    <b>location + routed team</b>. Add a location-wide <b>default</b> (no team) as a fallback.
+  </p>
+
+  <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+  <div *ngIf="success" class="alert alert-success">{{ success }}</div>
+
+  <!-- ── Form ───────────────────────────────────────────────────── -->
+  <form class="approver-form" (ngSubmit)="save()">
+    <h3>{{ editingId ? 'Edit approver' : 'Add approver' }}</h3>
+
+    <div class="grid">
+      <label>
+        Location *
+        <select [(ngModel)]="form.location_id" name="location_id" required>
+          <option [ngValue]="0" disabled>Select location</option>
+          <option *ngFor="let l of locations" [ngValue]="l.location_id">{{ l.location_name }}</option>
+        </select>
+      </label>
+
+      <label>
+        Team
+        <select [(ngModel)]="form.team_id" name="team_id" [disabled]="!!form.is_default">
+          <option [ngValue]="null">— Location default (any team) —</option>
+          <option *ngFor="let t of teamsForLocation()" [ngValue]="t.team_id">{{ t.team_name }}</option>
+        </select>
+      </label>
+
+      <label>
+        Organization
+        <select [(ngModel)]="form.org_id" name="org_id">
+          <option [ngValue]="null">— Any —</option>
+          <option *ngFor="let o of organizations" [ngValue]="o.orgId">{{ o.orgName }}</option>
+        </select>
+      </label>
+
+      <label>
+        Approver email *
+        <input type="email" [(ngModel)]="form.approver_email" name="approver_email" required
+               placeholder="approver@company.com" />
+      </label>
+
+      <label>
+        Approver name
+        <input type="text" [(ngModel)]="form.approver_name" name="approver_name" placeholder="Full name" />
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" [(ngModel)]="form.is_default" name="is_default" />
+        Location default (fallback when no team match)
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" [(ngModel)]="form.is_active" name="is_active" />
+        Active
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary" [disabled]="saving">
+        {{ saving ? (editingId ? 'Updating…' : 'Adding…') : (editingId ? 'Update' : 'Add') }}
+      </button>
+      <button type="button" class="btn btn-secondary" (click)="cancel()" *ngIf="editingId" [disabled]="saving">Cancel</button>
+    </div>
+  </form>
+
+  <!-- ── Table ──────────────────────────────────────────────────── -->
+  <table class="approver-table" *ngIf="approvers.length; else empty">
+    <thead>
+      <tr>
+        <th>Location</th><th>Team</th><th>Approver</th><th>Email</th>
+        <th>Default</th><th>Active</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let a of approvers">
+        <td>{{ a.location_name }}</td>
+        <td>{{ a.team_name || '— default —' }}</td>
+        <td>{{ a.approver_name || '—' }}</td>
+        <td>{{ a.approver_email }}</td>
+        <td>{{ a.is_default ? 'Yes' : '' }}</td>
+        <td>{{ a.is_active ? 'Yes' : 'No' }}</td>
+        <td class="row-actions">
+          <button class="btn btn-sm" (click)="edit(a)" [disabled]="saving || deletingId === a.approver_id">Edit</button>
+          <button class="btn btn-sm btn-danger" (click)="remove(a)" [disabled]="deletingId === a.approver_id">
+            {{ deletingId === a.approver_id ? 'Deleting…' : 'Delete' }}
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <ng-template #empty>
+    <p *ngIf="!loading" class="muted">No approvers configured yet.</p>
+    <p *ngIf="loading" class="muted">Loading…</p>
+  </ng-template>
+</div>

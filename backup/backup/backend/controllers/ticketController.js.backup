@@ -1,0 +1,162 @@
+// const Ticket           = require('../models/ticketModel');const Ticket           = require('../models/ticketModel');
+const { userExists, getUserEmailById } = require('../models/userModel');
+const {
+  sendTicketCreatedMail,
+  sendTicketUpdatedMail,
+  sendTicketAssignedMail,
+} = require('../utils/mailer');
+
+// ─── CREATE TICKET ─────────────────────────────────────────────────────────
+exports.create = async (req, res) => {
+  try {
+    if (req.file) req.body.attachment = req.file.filename;
+
+    console.log('📥 Create ticket payload:', req.body);
+
+    const ticket = await Ticket.createTicket(req.body);
+
+    // ✅ attach org_name manually for mailer
+    ticket.org_name = req.body.org_name;
+
+    const creatorEmail = ticket.created_by
+      ? await getUserEmailById(ticket.created_by)
+      : null;
+
+    sendTicketCreatedMail(ticket, creatorEmail).catch(err =>
+      console.error('Mail error (create):', err.message)
+    );
+
+    res.status(201).json(ticket);
+  } catch (err) {
+    console.error('❌ Create ticket error:', err.message);
+    res.status(400).json({ message: err.message });
+  }
+};
+
+// ─── UPDATE TICKET ─────────────────────────────────────────────────────────
+exports.update = async (req, res) => {
+  try {
+    if (req.file) req.body.attachment = req.file.filename;
+
+    console.log('📥 Update ticket payload:', req.body);
+
+    const ticket = await Ticket.updateTicket(req.params.id, req.body);
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+
+    const changedFields = {};
+    if (req.body.status_name)      changedFields['Status']      = req.body.status_name;
+    if (req.body.priority)         changedFields['Priority']    = req.body.priority;
+    if (req.body.assigned_to_name) changedFields['Assigned To'] = req.body.assigned_to_name;
+    if (req.body.description)      changedFields['Description'] = req.body.description;
+    if (req.body.issue_name)       changedFields['Issue']       = req.body.issue_name;
+
+    if (Object.keys(changedFields).length > 0) {
+      const fullTicket = await Ticket.getTicketById(req.params.id);
+      const creatorId  = fullTicket?.created_by_id;
+      const creatorEmail = creatorId ? await getUserEmailById(creatorId) : null;
+
+      if (!creatorEmail) {
+        console.warn(`⚠️ Creator email missing for ticket ${fullTicket.ticket_number}`);
+      }
+
+      sendTicketUpdatedMail(fullTicket, changedFields, creatorEmail)
+        .catch(err => console.error('❌ Mail error (update):', err.message));
+    }
+
+    res.json(ticket);
+  } catch (err) {
+    console.error('❌ Update ticket error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── GET TICKETS FOR USER ──────────────────────────────────────────────────
+exports.getTicketsForUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const exists = await userExists(userId);
+    if (!exists) return res.status(404).json({ message: 'User not found' });
+    const tickets = await Ticket.getTicketsByUser(userId);
+    res.status(200).json(tickets);
+  } catch (err) {
+    console.error('❌ Get user tickets error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── GET ALL TICKETS ───────────────────────────────────────────────────────
+exports.getAllTickets = async (req, res) => {
+  try {
+    console.log('🔥 API HIT: getAllTickets');
+
+    const org_id = req.query.org_id ? Number(req.query.org_id) : null;
+
+    const filters = {};
+    if (org_id) filters.org_id = org_id;
+
+    const tickets = await Ticket.getAllTickets(filters);
+
+    // ✅ Always return a plain array
+    return res.status(200).json(Array.isArray(tickets) ? tickets : []);
+
+  } catch (err) {
+    console.error('❌ getAllTickets error:', err.message);
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── GET TICKET BY ID ──────────────────────────────────────────────────────
+exports.getById = async (req, res) => {
+  try {
+    const ticket = await Ticket.getTicketById(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    res.json(ticket);
+  } catch (err) {
+    console.error('❌ Get ticket by ID error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── DELETE TICKET ─────────────────────────────────────────────────────────
+exports.remove = async (req, res) => {
+  try {
+    const ticket = await Ticket.deleteTicket(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    res.json({ message: 'Deleted successfully' });
+  } catch (err) {
+    console.error('❌ Delete ticket error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── ASSIGN TICKET ─────────────────────────────────────────────────────────
+exports.assignTicket = async (req, res) => {
+  try {
+    const { ticket_id, org_name, assigned_to, estimated_end_date, remark } = req.body;
+
+    if (!ticket_id || !assigned_to) {
+      return res.status(400).json({ message: 'ticket_id and assigned_to are required' });
+    }
+
+    const result = await Ticket.assignTicket({
+      ticket_id,
+      org_name:           org_name           || null,
+      assigned_to:        Number(assigned_to),
+      estimated_end_date: estimated_end_date  || null,
+      remark:             remark              || null,
+    });
+
+    const fullTicket   = await Ticket.getTicketById(ticket_id);
+    const creatorId    = fullTicket?.created_by_id;
+    const creatorEmail = creatorId ? await getUserEmailById(creatorId) : null;
+
+    sendTicketAssignedMail(fullTicket, result.assignee_email, creatorEmail).catch(err =>
+      console.error('Mail error (assign):', err.message)
+    );
+
+    res.status(200).json({ message: 'Ticket assigned successfully', ticket: result });
+  } catch (err) {
+    console.error('❌ Assign ticket error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};

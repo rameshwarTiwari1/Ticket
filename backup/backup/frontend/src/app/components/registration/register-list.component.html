@@ -1,0 +1,122 @@
+<div class="main-wrapper">
+  <div class="login-card">
+
+    <div class="left-section">
+      <img src="Login.png" class="left-image" alt="Register Visual">
+    </div>
+
+    <div class="right-section">
+      <div class="form-wrapper">
+        <h2 class="form-title">Registration</h2>
+
+        <form [formGroup]="form" (ngSubmit)="submit()">
+
+          <div class="form-grid">
+
+            <!-- First Name & Last Name -->
+            <div class="form-row">
+              <div class="form-group">
+                <label>First Name *</label>
+                <input type="text" formControlName="firstName" placeholder="First Name" />
+              </div>
+              <div class="form-group">
+                <label>Last Name *</label>
+                <input type="text" formControlName="lastName" placeholder="Last Name" />
+              </div>
+            </div>
+
+            <!-- Team & Employee ID -->
+            <div class="form-row">
+              <div class="form-group">
+                <label>Team *</label>
+                <select formControlName="teamId">
+                  <option value="">-- Select Team --</option>
+                  <option *ngFor="let team of teams" [value]="team.team_id">
+                    {{ team.team_name }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Employee ID *</label>
+                <input type="text" formControlName="employeeId" placeholder="Employee ID (e.g. CES0011)" />
+              </div>
+            </div>
+
+            <!-- Mobile Number & Email -->
+            <div class="form-row">
+              <!-- <div class="form-group">
+                <label>Mobile Number *</label>
+                <input type="text" formControlName="mobileNumber" placeholder="Mobile Number (10 digits)" />
+              </div> -->
+              
+            </div>
+            <div class="form-group">
+                <label>Email *</label>
+                <input type="email" formControlName="email" placeholder="Email" />
+              </div>
+            <!-- Location & Wing -->
+            <!-- <div class="form-row">
+              <div class="form-group">
+                <label>Location <span class="optional-label">(Optional)</span></label>
+                <select formControlName="locationId" (change)="onLocationChange()">
+                  <option value="">-- Select Location --</option>
+                  <option *ngFor="let loc of locations" [value]="loc.location_id">
+                    {{ loc.location_name }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Wing <span class="optional-label">(Optional)</span></label>
+                  <select formControlName="wingId">
+                  <option value="">-- Select Wing --</option>
+                  <option *ngFor="let w of filteredWings" [value]="w.wing_id">
+                    {{ w.wing_name }}
+                  </option>
+                </select>
+              </div>
+            </div> -->
+
+            <div class="form-group">
+              <label>Organization *</label>
+              <select formControlName="orgName" class="form-control">
+                <option value="">-- Select Organization --</option>
+                <option *ngFor="let org of organizations" [value]="org.orgName">
+                  {{ org.orgName }}
+                </option>
+              </select>
+            </div>
+
+          </div>
+
+          <!-- OTP Section -->
+          <div class="otp-section">
+            <button type="button" class="otp-btn" (click)="sendOtp()" [disabled]="otpSent && otpVerified">
+              {{ otpSent ? 'OTP Sent' : 'Send OTP' }}
+            </button>
+
+            <ng-container *ngIf="otpSent">
+              <input type="text" formControlName="otp" placeholder="Enter OTP" class="otp-input" />
+              <button type="button" class="otp-btn" *ngIf="!otpVerified" (click)="verifyOtp()">
+                Verify OTP
+              </button>
+              <span *ngIf="otpVerified" class="otp-verified">✓ OTP Verified</span>
+            </ng-container>
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label>Password *</label>
+            <input type="password" formControlName="password" placeholder="Password" />
+          </div>
+
+          <button type="submit" class="submit-btn" [disabled]="!otpVerified">Register</button>
+
+        </form>
+
+        <div class="bottom-link">
+          <a routerLink="/login">Back to Login</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>

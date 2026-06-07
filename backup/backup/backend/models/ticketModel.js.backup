@@ -1,0 +1,389 @@
+const db = require('../config/db');
+
+const generateTicketNumber = () => {
+  const now = new Date();
+  return `TKC${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+};
+
+const calculateSLA = (priority) => {
+  const now = new Date();
+  switch (priority) {
+    case 'High':   now.setHours(now.getHours() + 4);  break;
+    case 'Medium': now.setHours(now.getHours() + 8);  break;
+    case 'Low':    now.setDate(now.getDate() + 1);     break;
+    default:       return null;
+  }
+  return now;
+};
+
+const getIdByName = async (table, idCol, nameCol, value) => {
+  if (!value) return null;
+
+  const res = await db.query(
+    `SELECT ${idCol} FROM ${table}
+     WHERE LOWER(${nameCol}) LIKE LOWER($1)
+     LIMIT 1`,
+    [`${value.trim()}`]
+  );
+
+  return res.rows[0]?.[idCol] ?? null;
+};
+
+const TEAM_STRINGS = ['IT/HELP_DESK', 'DBA'];
+const isTeamString = (val) => TEAM_STRINGS.includes((val || '').toUpperCase().trim());
+
+// ─── Shared SELECT used in all queries ────────────────────────────────────────
+const TICKET_SELECT = `
+  t.ticket_id,
+  t.ticket_number,
+  t.subject,
+  t.email_id,
+  t.created_by  AS created_by_id,
+  t.assigned_to AS assigned_to_id,
+  u1.first_name || ' ' || u1.last_name AS created_by_name,
+  COALESCE(
+  CASE 
+    WHEN u2.first_name IS NOT NULL 
+    THEN u2.first_name || ' ' || u2.last_name
+    ELSE NULL
+  END,
+  t.assigned_to_team::text
+) AS assigned_to_name,
+  ty.type_name,
+  i.issue_name,
+  te.team_name,
+  s.status_name,
+  t.priority,
+  t.description,
+  t.additional_email,
+  t.attachment,
+  t.created_at,
+  t.updated_at,
+  t.resolved_at,
+  t.closed_at,
+  t.sla_due_at,
+  c.client_name,
+  t.org_id,
+  o.org_name,
+  t.location_id,
+  l.location_name
+`;
+
+const TICKET_JOINS = `
+  LEFT JOIN T_USER        u1 ON u1.register_id  = t.created_by
+  LEFT JOIN T_USER        u2 ON u2.register_id  = t.assigned_to
+  LEFT JOIN T_TYPES       ty ON ty.type_id       = t.type_id
+  LEFT JOIN T_ISSUES      i  ON i.issue_id       = t.issue_id
+  LEFT JOIN T_TEAMS       te ON te.team_id       = t.assigned_team_id
+  LEFT JOIN ticket_status s  ON s.status_id      = t.status_id
+  LEFT JOIN T_CLIENTS     c  ON c.client_id      = t.client_id
+  LEFT JOIN T_ORGANIZATION o ON o.org_id         = t.org_id
+  LEFT JOIN T_LOCATIONS   l  ON l.location_id    = t.location_id
+`;
+
+// ─── CREATE TICKET ────────────────────────────────────────────────────────────
+exports.createTicket = async (data) => {
+  const ticket_number = generateTicketNumber();
+  const sla_due_at    = calculateSLA(data.priority);
+
+  const created_by = await getIdByName(
+    'T_USER', 'register_id',
+    "first_name || ' ' || last_name",
+    data.created_by_name
+  );
+
+  const assignedToTeam = data.assigned_to_name
+  ? data.assigned_to_name.toUpperCase().trim()
+  : null;
+
+// If it's a team like IT/HELP_DESK or DBA → store as team, NOT user
+const TEAM_LIST = ['IT/HELP_DESK', 'DBA'];
+
+const isTeam = TEAM_LIST.includes(assignedToTeam);
+
+const assigned_to = isTeam
+  ? null
+  : await getIdByName(
+      'T_USER',
+      'register_id',
+      "first_name || ' ' || last_name",
+      data.assigned_to_name
+    );
+
+  const type_id   = await getIdByName('T_TYPES',       'type_id',   'type_name',   data.type_name);
+  const issue_id  = await getIdByName('T_ISSUES',      'issue_id',  'issue_name',  data.issue_name);
+  const team_id   = await getIdByName('T_TEAMS',       'team_id',   'team_name',   data.team_name);
+  const status_id = await getIdByName('ticket_status', 'status_id', 'status_name', data.status_name);
+  const client_id = await getIdByName('T_CLIENTS',     'client_id', 'client_name', data.client_name);
+
+  // Resolve org_id from organization name if provided, else from creator's org
+  let org_id = null;
+  if (data.org_name) {
+    org_id = await getIdByName('T_ORGANIZATION', 'org_id', 'org_name', data.org_name);
+  } else if (created_by) {
+    // Auto-inherit org from the creator's user record
+    const creatorRow = await db.query(
+      `SELECT org_id FROM T_USER WHERE register_id = $1`, [created_by]
+    );
+    org_id = creatorRow.rows[0]?.org_id || null;
+  }
+
+  // Resolve location_id from org
+  let location_id = null;
+  if (org_id) {
+    const locRow = await db.query(
+      `SELECT location_id FROM T_ORGANIZATION WHERE org_id = $1`, [org_id]
+    );
+    location_id = locRow.rows[0]?.location_id || null;
+  }
+
+  const missing = [];
+  if (!created_by) missing.push('created_by_name');
+  if (!type_id)    missing.push('type_name');
+  if (!issue_id)   missing.push('issue_name');
+  if (!team_id)    missing.push('team_name');
+  if (!status_id)  missing.push('status_name');
+  // if (missing.length > 0) throw new Error(`Invalid fields: ${missing.join(', ')}`);
+
+  if (missing.length > 0) {
+  console.log("❌ Missing Fields:", missing);
+
+  console.log("DEBUG VALUES:", {
+    created_by,
+    type_id,
+    issue_id,
+    team_id,
+    status_id,
+    client_id
+  });
+
+  throw new Error(`Invalid fields: ${missing.join(', ')}`);
+}
+
+  const { rows } = await db.query(`
+  INSERT INTO T_TICKETS (
+    ticket_number, created_by, assigned_to,
+    subject, description,
+    type_id, issue_id, assigned_team_id, status_id, priority,
+    email_id, additional_email, attachment, sla_due_at,
+    client_id, org_id, location_id
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+  RETURNING *
+`, [
+  ticket_number,
+  created_by,
+  assigned_to ? Number(assigned_to) : null,
+  data.subject,
+  data.description || null,
+  type_id,
+  issue_id,
+  team_id,                 // ✅ FIX: assigned_team_id is correct
+  status_id,
+  data.priority,
+  data.email_id || null,
+  data.additional_email || null,
+  data.attachment || null,
+  sla_due_at,
+  client_id || null,
+  org_id || null,
+  location_id || null,
+]);
+
+  return {
+    ...rows[0],
+    created_by_name:  data.created_by_name || null,
+    assigned_to_name: assignedToTeam || data.assigned_to_name || null,
+    issue_name:       data.issue_name  || null,
+    client_name:      data.client_name || null,
+  };
+};
+
+// ─── GET ALL TICKETS ──────────────────────────────────────────────────────────
+exports.getAllTickets = async (filters = {}) => {
+  try {
+    let whereClause = '';
+    const values = [];
+
+    if (filters.org_id) {
+  values.push(Number(filters.org_id));
+  whereClause = `WHERE t.org_id = $1`;
+}
+
+    const query = `
+      SELECT ${TICKET_SELECT}
+      FROM T_TICKETS t
+      ${TICKET_JOINS}
+      ${whereClause}
+      ORDER BY t.created_at DESC
+    `;
+
+    console.log("🟢 FINAL QUERY:", query);
+    console.log("🟢 VALUES:", values);
+
+    const { rows } = await db.query(query, values);
+    return rows || [];
+  } catch (error) {
+    console.error("❌ MODEL getAllTickets ERROR:", error);
+    throw new Error("Database error while fetching tickets");
+  }
+};
+
+// ─── GET TICKETS BY USER ──────────────────────────────────────────────────────
+exports.getTicketsByUser = async (userId) => {
+  const { rows } = await db.query(`
+    SELECT ${TICKET_SELECT}
+    FROM T_TICKETS t
+    ${TICKET_JOINS}
+    WHERE t.created_by = $1 OR t.assigned_to = $1
+    ORDER BY t.created_at DESC
+  `, [userId]);
+  return rows;
+};
+
+// ─── GET TICKET BY ID ─────────────────────────────────────────────────────────
+exports.getTicketById = async (id) => {
+  const { rows } = await db.query(`
+    SELECT ${TICKET_SELECT}
+    FROM T_TICKETS t
+    ${TICKET_JOINS}
+    WHERE t.ticket_id = $1
+  `, [id]);
+  return rows[0];
+};
+
+// ─── UPDATE TICKET ────────────────────────────────────────────────────────────
+exports.updateTicket = async (id, data) => {
+  const newAssignedToTeam = data.assigned_to_name && isTeamString(data.assigned_to_name)
+    ? data.assigned_to_name.toUpperCase().trim()
+    : null;
+
+  const assigned_to = data.assigned_to_name && !newAssignedToTeam
+    ? await getIdByName('T_USER', 'register_id', "first_name || ' ' || last_name", data.assigned_to_name)
+    : null;
+
+  const type_id   = data.type_name   ? await getIdByName('T_TYPES', 'type_id', 'type_name', data.type_name) : null;
+  const issue_id  = data.issue_name  ? await getIdByName('T_ISSUES', 'issue_id', 'issue_name', data.issue_name) : null;
+  const team_id   = data.team_name   ? await getIdByName('T_TEAMS', 'team_id', 'team_name', data.team_name) : null;
+  const status_id = data.status_name ? await getIdByName('ticket_status', 'status_id', 'status_name', data.status_name) : null;
+  const client_id = data.client_name ? await getIdByName('T_CLIENTS', 'client_id', 'client_name', data.client_name) : null;
+
+  let resolved_at = null;
+  let closed_at = null;
+
+  if (data.status_name) {
+    if (data.status_name.toLowerCase() === 'resolved') resolved_at = new Date();
+    if (data.status_name.toLowerCase() === 'closed') closed_at = new Date();
+  }
+
+  const query = `
+    UPDATE T_TICKETS SET
+      subject          = COALESCE($1, subject),
+      priority         = COALESCE($2, priority),
+      description      = COALESCE($3, description),
+
+      assigned_to      = COALESCE($4::int, assigned_to),
+      // assigned_to_team = COALESCE($5::text, assigned_to_team),
+      assigned_team_id = COALESCE($5, assigned_team_id),
+
+      type_id          = COALESCE($6, type_id),
+      issue_id         = COALESCE($7, issue_id),
+      assigned_team_id = COALESCE($8, assigned_team_id),
+      status_id        = COALESCE($9, status_id),
+      email_id         = COALESCE($10, email_id),
+      additional_email = COALESCE($11, additional_email),
+      attachment       = COALESCE($12, attachment),
+
+      updated_at       = CURRENT_TIMESTAMP,
+      resolved_at      = COALESCE($13, resolved_at),
+      closed_at        = COALESCE($14, closed_at),
+      client_id        = COALESCE($15, client_id)
+
+    WHERE ticket_id = $16
+    RETURNING *
+  `;
+
+  const values = [
+    data.subject || null,
+    data.priority || null,
+    data.description || null,
+    assigned_to,
+    newAssignedToTeam,
+    type_id,
+    issue_id,
+    team_id,
+    status_id,
+    data.email_id || null,
+    data.additional_email || null,
+    data.attachment || null,
+    resolved_at,
+    closed_at,
+    client_id,
+    id
+  ];
+
+  const { rows } = await db.query(query, values);
+
+  return rows[0];
+};
+
+// ─── DELETE TICKET ────────────────────────────────────────────────────────────
+exports.deleteTicket = async (id) => {
+  const res = await db.query(
+    `DELETE FROM T_TICKETS WHERE ticket_id = $1 RETURNING *`, [id]
+  );
+  return res.rows[0];
+};
+
+// ─── ASSIGN TICKET ───────────────────────────────────────────────────────────
+exports.assignTicket = async (data) => {
+  const { ticket_id, org_name, assigned_to, estimated_end_date, remark } = data;
+
+  // Resolve org_id from org_name
+  let org_id = null;
+  if (org_name) {
+    org_id = await getIdByName('T_ORGANIZATION', 'org_id', 'org_name', org_name);
+  }
+
+
+  // Get assignee details
+  const assigneeRow = await db.query(
+    `SELECT register_id, first_name, last_name, email_id
+     FROM T_USER WHERE register_id = $1`,
+    [assigned_to]
+  );
+  const assignee = assigneeRow.rows[0];
+  if (!assignee) throw new Error('Assigned user not found');
+
+  // Get status_id for 'In Progress'
+  const status_id = await getIdByName(
+    'ticket_status', 'status_id', 'status_name', 'In Progress'
+  );
+
+  // ✅ Use correct snake_case column names that exist in T_TICKETS
+  const { rows } = await db.query(`
+    UPDATE T_TICKETS SET
+      assigned_to        = $1,
+      org_id             = COALESCE($2, org_id),
+      status_id          = COALESCE($3, status_id),
+      estimated_end_date = $4,
+      remark             = $5,
+      updated_at         = CURRENT_TIMESTAMP
+    WHERE ticket_id = $6
+    RETURNING *
+  `, [
+    assigned_to,
+    org_id || null,
+    status_id || null,
+    estimated_end_date || null,
+    remark || null,
+    ticket_id,
+  ]);
+
+  if (!rows[0]) throw new Error('Ticket not found');
+
+  return {
+    ...rows[0],
+    assignee_name:  `${assignee.first_name} ${assignee.last_name}`,
+    assignee_email: assignee.email_id,
+  };
+};

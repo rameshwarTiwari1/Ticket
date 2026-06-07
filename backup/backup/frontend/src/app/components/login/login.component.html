@@ -1,0 +1,65 @@
+<div class="main-wrapper">
+  <div class="login-card">
+
+    <!-- LEFT SIDE -->
+    <div class="left-section">
+      <img src="Login.png" class="left-image" alt="Login Visual">
+    </div>
+
+    <!-- RIGHT SIDE -->
+    <div class="right-section">
+      <div class="form-wrapper">
+
+        <form (ngSubmit)="login()" *ngIf="!loggedInUser">
+
+          <div class="form-group1">
+            <label for="email">E-mail</label>
+            <input
+              id="email"
+              type="email"
+              [(ngModel)]="email"
+              name="email"
+              required
+              placeholder="Type your e-mail">
+          </div>
+
+          <div class="form-group2">
+            <label for="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              [(ngModel)]="password"
+              name="password"
+              required
+              placeholder="Type your password">
+          </div>
+
+          <div class="forgot-link">
+            <a routerLink="/forgot-password">Forgot Password?</a>
+          </div>
+
+          <button type="submit" [disabled]="isLoading">
+            {{ isLoading ? 'Signing In...' : 'Sign In' }}
+          </button>
+
+          <div class="register-link">
+            <a routerLink="/register">New Registration?</a>
+          </div>
+
+          <p class="error-msg" *ngIf="message">
+            {{ message }}
+          </p>
+
+        </form>
+
+        <!-- Already Logged In -->
+        <div *ngIf="loggedInUser" class="welcome-box">
+          <p>Welcome, <strong>{{ username }}</strong></p>
+          <button type="button" (click)="logout()">Logout</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>

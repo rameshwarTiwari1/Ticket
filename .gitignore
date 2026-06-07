@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.angular/
+
+# Environment / secrets — never commit real .env
+.env
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Runtime uploads (keep the folder, ignore its contents)
+backup/backup/backend/uploads/*
+!backup/backup/backend/uploads/.gitkeep

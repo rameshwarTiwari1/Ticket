@@ -1,0 +1,1629 @@
+<nav class="navbar1">
+  <div class="logo-wrapper">
+    <img src="hansalogo.png" class="logoimage" alt="hansalogo">
+    <span class="logo">Ticketing Portal</span>
+  </div>
+  <div class="search-box">
+    <input type="text"
+      placeholder="Search by Ticket No, User, Created By, Status, Priority, Issue, Team or Assigned To..."
+      [(ngModel)]="searchTerm" (ngModelChange)="onSearch()" />
+    <i class="fa-solid fa-magnifying-glass"></i>
+  </div>
+  <div class="right">
+    <!-- <div class="notification-icon">
+      <i class="fa fa-bell"></i>
+      <span *ngIf="notificationCount > 0" class="notification-badge">
+        {{ notificationCount }}
+      </span>
+    </div> -->
+    <div class="user-dropdown">
+      <button class="user-trigger" (click)="toggleUserDropdown($event)">
+        Welcome, {{ username }}
+        <i class="fa-solid fa-angle-down"></i>
+      </button>
+      <div class="dropdown-menu" *ngIf="showDropdown">
+        <textarea class="user-details" readonly [value]="
+            'Name: ' + username + '\n' +
+            'Email: ' + (loggedInUser?.email || '') + '\n' +
+           
+            'Team: ' + (loggedInUser?.teamName || '')"></textarea>
+        <button class="logout-btn" (click)="logout($event)">Logout</button>
+         <!-- 'Phone: ' + (loggedInUser?.mobileNumber || '') + '\n' + -->
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <!-- Dashboard -->
+    <a (click)="setSidebarTab('dashboard')" [class.active]="activeSidebarTab === 'dashboard'" class="menu-item">
+      <i class="fa-solid fa-gauge"></i>
+      <span>Dashboard</span>
+    </a>
+    <!-- Tickets -->
+    <a (click)="setSidebarTab('viewTickets')" [class.active]="activeSidebarTab === 'viewTickets'" class="menu-item">
+      <i class="fa-solid fa-tag"></i>
+      <span>Tickets</span>
+    </a>
+    <!-- Closed Tickets -->
+    <a (click)="setSidebarTab('closedTickets')" [class.active]="activeSidebarTab === 'closedTickets'" class="menu-item">
+      <i class="fa-solid fa-circle-check"></i>
+      <span>Closed Tickets</span>
+    </a>
+
+    <!-- User -->
+    <a *ngIf="isAdmin" (click)="openUserTab()"
+      [ngClass]="{'active': activeSidebarTab === 'users'}" class="menu-item">
+      <i class="fa-regular fa-user"></i>
+      <span>User</span>
+    </a>
+    <!-- Team -->
+    <a *ngIf="isAdmin"
+      (click)="setSidebarTab('teams')" [class.active]="activeSidebarTab === 'teams'" class="menu-item">
+      <i class="fa-solid fa-users"></i>
+      <span>Team</span>
+    </a>
+    <!-- Approvers (admin) — manage who receives approval emails -->
+    <a *ngIf="isAdmin" routerLink="/approvers" routerLinkActive="active" class="menu-item">
+      <i class="fa-solid fa-user-check"></i>
+      <span>Approvers</span>
+    </a>
+  </aside>
+
+  <!-- ================= DASHBOARD ================= -->
+
+  <div *ngIf="isLoading" class="loader">
+    Loading...
+  </div>
+
+  <div *ngIf="activeSidebarTab === 'dashboard' && !selectedTicket" class="dashboard-container">
+
+    <!-- HEADER -->
+    <div class="header">
+      <h2>Home</h2>
+      <div class="header-right">
+        <div *ngIf="isManager" class="dropdown-container">
+          <select id="organization" *ngIf="isManager" class="org-dropdown" [(ngModel)]="dashboardOrganization"
+            (change)="onChange(dashboardOrganization)">
+            <option value="" class="" disabled>Select Organization</option>
+            <option *ngFor="let org of organizations" [value]="org">
+              {{ org }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Date Dropdown -->
+        <div class="date-dropdown">
+          <button class="dropbtn" (click)="toggleDropdown()">
+            <ng-container *ngIf="selectedRange === 'allTime'">All Time</ng-container>
+            <ng-container *ngIf="selectedRange === 'thisWeek'">This Week</ng-container>
+            <ng-container *ngIf="selectedRange === 'lastWeek'">Last Week</ng-container>
+            <ng-container *ngIf="selectedRange === 'custom'">
+              {{ customStartDate | date:'dd MMM' }} – {{ customEndDate | date:'dd MMM yyyy' }}
+            </ng-container>
+            <i class="fa-solid fa-angle-down"></i>
+          </button>
+
+          <div class="dropdown-content" [class.show]="dropdownOpen">
+            <a (click)="setAllTime()">All Time</a>
+            <a (click)="setDateRange('thisWeek')">This Week</a>
+            <a (click)="setDateRange('lastWeek')">Last Week</a>
+            <a (click)="openCustomDatePicker()">Custom Range</a>
+          </div>
+
+          <!-- Custom Date Picker Panel INSIDE date-dropdown -->
+          <div class="custom-date-panel" *ngIf="showCustomDatePicker">
+            <div class="custom-date-row">
+              <div class="custom-date-field">
+                <label>From</label>
+                <input type="date" [(ngModel)]="customStartDate" [max]="customEndDate || ''"
+                  onclick="this.showPicker()" />
+              </div>
+              <div class="custom-date-field">
+                <label>To</label>
+                <input type="date" [(ngModel)]="customEndDate" [min]="customStartDate || ''"
+                  onclick="this.showPicker()" />
+              </div>
+            </div>
+            <div class="custom-date-preview" *ngIf="customStartDate && customEndDate">
+              <i class="fa-solid fa-calendar-days"></i>
+              {{ customStartDate | date:'dd MMM yyyy' }} &nbsp;→&nbsp; {{ customEndDate | date:'dd MMM yyyy' }}
+            </div>
+            <div class="custom-date-error" *ngIf="customDateError">
+              <i class="fa-solid fa-triangle-exclamation"></i> {{ customDateError }}
+            </div>
+            <div class="custom-date-actions">
+              <button class="apply-btn" (click)="applyCustomDateRange()">
+                <i class="fa-solid fa-check"></i> Apply
+              </button>
+              <button class="clear-btn" (click)="clearCustomDateRange()">
+                <i class="fa-solid fa-xmark"></i> Clear
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- New Ticket (Manager + Others allowed) -->
+        <button class="create-btn1" (click)="openNewTicketForm()">
+          <i class="fa-regular fa-pen-to-square"></i> New Ticket
+        </button>
+
+      </div>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="summary-tables">
+      <div class="summary-card1">
+        <div class="left">
+          <i class="fa-solid fa-circle"></i>
+          <span>Total Tickets Raised</span>
+        </div>
+        <span class="count">{{ totalRaised }}</span>
+      </div>
+
+      <div class="summary-card3">
+        <div class="left">
+          <i class="fa-solid fa-circle"></i>
+          <span>Work In Progess</span>
+        </div>
+        <span class="count">{{ totalPaused }}</span>
+      </div>
+
+    <div class="summary-card2">
+        <div class="left">
+          <i class="fa-solid fa-circle"></i>
+          <span>Total Tickets Resolved</span>
+        </div>
+        <span class="count">{{ totalResolved }}</span>
+      </div>
+      </div>
+
+    <!-- TICKET NAV -->
+    <div class="container">
+      <div class="row">
+        <div class="col-8">
+          <nav class="navbar">
+            <ul class="nav-links">
+              <li>
+                <a (click)="switchTicketTab('all')" [class.active]="activeTicketTab==='all'">
+                  All Tickets <span class="tab-count">{{allCount}}</span>
+                </a>
+              </li>
+              <li>
+                <a (click)="switchTicketTab('wip')" [class.active]="activeTicketTab==='wip'">
+                  WIP <span class="tab-count">{{wipCount}}</span>
+                </a>
+              </li>
+              <li>
+                <a (click)="switchTicketTab('open')" [class.active]="activeTicketTab==='open'">
+                  Open <span class="tab-count">{{ openCount }}</span>
+                </a>
+              </li>
+              <li>
+                <a (click)="switchTicketTab('closed')" [class.active]="activeTicketTab==='closed'">
+                  Closed <span class="tab-count">{{ closedCount }}</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+
+        <div class="col-4">
+          <div class="entries-container">
+
+            <div class="entries">
+              Show
+              <select [(ngModel)]="selectedEntries" (change)="onEntriesChange()">
+                <option *ngFor="let e of entriesOptions" [value]="e">
+                  {{e}}
+                </option>
+              </select>
+              entries
+            </div>
+
+            <div class="tabs">
+              <button class="tab-btn" [class.active]="dashboardView==='cards'" (click)="switchDashboardView('cards')">
+                Cards
+              </button>
+
+              <button class="tab-btn" [class.active]="dashboardView==='list'" (click)="switchDashboardView('list')">
+                List
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD VIEW -->
+    <div class="ticket-wrapper" *ngIf="dashboardView === 'cards'">
+      <div class="ticket-card" *ngFor="let ticket of paginatedTickets; trackBy: trackByTicket"
+        [ngClass]="getBorderClass(ticket)">
+
+        <div class="ticket-header">
+          <div class="ticket-left">
+            <span class="status-dot" [ngClass]="getStatusDotClass(ticket)"></span>
+            <span class="ticket-no">{{ ticket.ticket_number }}</span>
+          </div>
+          <span class="priority-badge" [ngClass]="getPriorityBadgeClass(ticket)">
+            {{ ticket.priority }}
+          </span>
+        </div>
+        <hr class="dotted-line" />
+
+        <div class="approval-badge-row">
+  <span class="approval-badge approval-pending"
+        *ngIf="ticket.approval_status === 'pending' || !ticket.approval_status">
+    ⏳ Pending Approval
+  </span>
+  <span class="approval-badge approval-approved"
+        *ngIf="ticket.approval_status === 'approved'">
+    ✅ Approved
+  </span>
+  <span class="approval-badge approval-rejected"
+        *ngIf="ticket.approval_status === 'not_approved'">
+    ❌ Not Approved
+  </span>
+</div>
+
+        <div class="ticket-body">
+          <div class="row">
+            <span class="label">User ID</span>
+            <span class="value">{{ ticket.created_by_name }}</span>
+          </div>
+          <div class="row">
+            <span class="label">Raise Date</span>
+            <span class="value">{{ ticket.created_at | date:'dd MMM yyyy' }}</span>
+          </div>
+        </div>
+        <div class="ticket-body">
+          <div class="row row1" style="width: 192px;">
+            <span class="label"> Time </span>
+            <span class="value">  {{ ticket.created_at | date:'hh:mm a'}}  </span>
+            
+             
+          </div>
+          <div class="row">
+            <span class="label">Type</span>
+            <span class="value">{{ticket.type_name}}</span>
+            
+          </div>
+          
+        </div>
+        <div class="display_button">
+          <div class="row">
+            <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
+            <ng-container *ngIf="canManageTickets">
+              <button
+                class="assign-btn"
+                [class.assigned]="ticket.assigned_to_id"
+                [disabled]="!!ticket.assigned_to_id || ticket.approval_status !== 'approved'"
+                [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
+                (click)="!ticket.assigned_to_id && ticket.approval_status === 'approved' && openAssignModal(ticket)">
+                {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+              </button>
+            </ng-container>
+
+          </div>
+          <button class="open-btn" (click)="openTicket(ticket)">
+            Open Ticket<i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div *ngIf="dashboardView === 'list'" class="list-wrapper">
+      <table class="ticket-table">
+        <thead>
+          <tr>
+            <th>Ticket No</th>
+            <th>Priority</th>
+            <th>User ID</th>
+            <th>Raise Date</th>
+            <th>Raise At</th>
+            <th>Approval</th>
+            <th>Action</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr *ngFor="let ticket of paginatedTickets; trackBy: trackByTicket">
+            <td>
+              <div class="ticket-info">
+                <span class="ticket-no">
+                  #{{ ticket.ticket_number }}
+                </span>
+
+                <span class="status-badge" [ngClass]="{
+                'status-new': ticket.status_name === 'Open',
+                'status-wip': ticket.status_name === 'In Progress',
+                'status-resolved': ticket.status_name === 'Resolved',
+                'status-closed': ticket.status_name === 'Closed',
+                'status-reopen': ticket.status_name === 'Reopened'
+              }">
+                  {{ ticket.status_name }}
+                </span>
+                <span *ngIf="ticket.sla_breached" class="status-badge status-closed" title="SLA breached"
+                      style="background:#dc2626;color:#fff;margin-left:6px;">SLA ⚠</span>
+              </div>
+            </td>
+
+            <!-- Priority -->
+            <td>
+              <span class="priority-badge" [ngClass]="{
+              'priority-high': ticket.priority === 'High',
+              'priority-medium': ticket.priority === 'Medium',
+              'priority-low': ticket.priority === 'Low'
+            }">
+                {{ ticket.priority }}
+              </span>
+            </td>
+
+            <!-- User -->
+            <td>{{ ticket.created_by_name }}</td>
+
+            <!-- Date -->
+            <td>{{ ticket.created_at | date:'dd MMM yyyy' }}</td>
+
+            <!-- Time -->
+            <td>{{ ticket.created_at | date:'hh:mm a' }}</td>
+
+            <td>
+  <span class="approval-badge approval-pending"
+        *ngIf="ticket.approval_status === 'pending' || !ticket.approval_status">
+    ⏳ Pending
+  </span>
+  <span class="approval-badge approval-approved"
+        *ngIf="ticket.approval_status === 'approved'">
+    ✅ Approved
+  </span>
+  <span class="approval-badge approval-rejected"
+        *ngIf="ticket.approval_status === 'not_approved'">
+    ❌ Not Approved
+  </span>
+</td>
+
+            <!-- Open Button -->
+            <td class="action-col">
+              <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
+              <ng-container *ngIf="canManageTickets">
+                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id" [disabled]="!!ticket.assigned_to_id"
+                  (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
+                  {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                </button>
+              </ng-container>
+              <button class="open-btn" (click)="openTicket(ticket)">
+                Open Ticket <i class="fa-solid fa-arrow-right"></i>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div *ngIf="(!paginatedTickets || paginatedTickets.length === 0) && !showNewTicketForm" class="no-data">
+      .....No tickets found
+    </div>
+
+    <div class="table-footer" *ngIf="filteredTickets.length && !showNewTicketForm">
+
+      <div class="entries-info">
+        Showing {{dashboardPagination.showingFrom}}
+        to {{dashboardPagination.showingTo}}
+        of {{dashboardPagination.total}} entries
+      </div>
+      <div class="pagination">
+        <button (click)="previousPage(dashboardPagination)">Prev</button>
+
+        <span>
+          Page {{dashboardPagination.page}}
+          of {{Math.ceil(dashboardPagination.total/dashboardPagination.perPage)}}
+        </span>
+        <button (click)="nextPage(dashboardPagination)">Next</button>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TICKETS TAB ================= -->
+
+  <div *ngIf="isLoading" class="loader">
+    Loading...
+  </div>
+
+  <div *ngIf="activeSidebarTab === 'viewTickets' && !selectedTicket" class="dashboard-container">
+    <!-- HEADER -->
+    <div class="header" *ngIf="!showNewTicketForm && !selectedTicket">
+
+      <h2>All Tickets</h2>
+      <div class="header-right">
+        <!-- View Toggle -->
+        <div class="tabs1">
+          <button class="tab-btn1" [class.active]="ticketsView==='cards'" (click)="switchTicketsView('cards')"
+            [disabled]="showNewTicketForm">
+            Cards
+          </button>
+
+          <button class="tab-btn1" [class.active]="ticketsView==='list'" (click)="switchTicketsView('list')"
+            [disabled]="showNewTicketForm">
+            List
+          </button>
+        </div>
+
+        <!-- Back -->
+        <button class="create-btn2" (click)="goToDashboard()" [disabled]="showNewTicketForm">
+          Back
+        </button>
+
+        <!-- New Ticket -->
+        <button class="create-btn1" (click)="openNewTicketForm()" [disabled]="showNewTicketForm">
+          <i class="fa-regular fa-pen-to-square"></i> New Ticket
+        </button>
+      </div>
+    </div>
+
+    <div class="table-controls" *ngIf="!showNewTicketForm && !selectedTicket">
+
+      <div class="entries">
+        Show
+        <select [(ngModel)]="selectedEntries" (change)="onEntriesChange()">
+          <option *ngFor="let e of entriesOptions" [value]="e">
+            {{e}}
+          </option>
+        </select>
+        entries
+      </div>
+
+    </div>
+
+    <!-- ================= HEADER (Ticket Details) ================= -->
+    <div class="header" *ngIf="selectedTicket">
+      <h2>Ticket Details</h2>
+      <div class="header-right">
+        <button class="create-btn2" (click)="closeTicketDetails()">
+          Back
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= NEW TICKET FORM ================= -->
+
+    <div *ngIf="showNewTicketForm" class="ticket-form-content" [formGroup]="ticketForm">
+      <div class="form-header">
+        <h3 *ngIf="!editingTicket">Generate Ticket</h3>
+        <h3 *ngIf="editingTicket">
+          Update Ticket
+          <span class="ticket-number-badge">#{{ editingTicket.ticket_number }}</span>
+        </h3>
+        <button type="button" class="cancel-btn" (click)="closeNewTicketForm()">Cancel</button>
+      </div>
+
+      <div class="form-grid">
+
+        <!-- Created By: always read-only -->
+        <div class="form-group">
+          <label>Created By</label>
+          <input type="text" formControlName="created_by_name" readonly />
+        </div>
+
+        <!-- Team: locked to logged-in user's team, not changeable -->
+        <div class="form-group">
+          <label>Team</label>
+          <input type="text" formControlName="team_name" readonly />
+        </div>
+
+        <!-- Subject -->
+        <div class="form-group">
+          <label>Subject <span class="required-star">*</span></label>
+          <input type="text" formControlName="subject" placeholder="Enter subject" />
+          <span class="field-error" *ngIf="ticketForm.get('subject')?.invalid && ticketForm.get('subject')?.touched">
+            Subject is required.
+          </span>
+        </div>
+
+        <!-- Issue: plain dropdown, no mapping side-effects -->
+        <div class="form-group">
+          <label>Issue <span class="required-star">*</span></label>
+          <select formControlName="issue_name">
+            <option value="">Select Issue</option>
+            <option *ngFor="let r of reasons" [value]="r">{{ r }}</option>
+          </select>
+          <span class="field-error"
+            *ngIf="ticketForm.get('issue_name')?.invalid && ticketForm.get('issue_name')?.touched">
+            Issue is required.
+          </span>
+        </div>
+
+        <!-- Type: user selects, defaults to IT Services -->
+        <div class="form-group">
+          <label>Type <span class="required-star">*</span></label>
+          <select formControlName="type_name">
+            <option *ngFor="let t of ticketTypes" [value]="t">{{ t }}</option>
+          </select>
+          <span class="field-error"
+            *ngIf="ticketForm.get('type_name')?.invalid && ticketForm.get('type_name')?.touched">
+            Type is required.
+          </span>
+        </div>
+
+        <!-- Assigned To: shows IT/HELP_DESK + DBA users, with team label -->
+        <div class="form-group">
+          <label>Assigned To</label>
+          <select formControlName="assigned_to_name">
+            <option *ngFor="let team of assignedTeams" [value]="team">
+              {{ team }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Client Name -->
+        <div class="form-group">
+          <label>Client Name <span class="required-star">*</span></label>
+          <select formControlName="client_name">
+            <option value="">Select Client</option>
+            <option *ngFor="let c of clients" [value]="c.client_name">{{ c.client_name }}</option>
+          </select>
+          <span class="field-error"
+            *ngIf="ticketForm.get('client_name')?.invalid && ticketForm.get('client_name')?.touched">
+            Client is required.
+          </span>
+        </div>
+
+        <!-- Approver — filtered to the creator's location (blank = auto-select) -->
+        <div class="form-group" *ngIf="!editingTicket">
+          <label>Send approval to</label>
+          <select formControlName="approver_email">
+            <option value="">Auto-select (recommended)</option>
+            <option *ngFor="let a of approverOptions" [value]="a.approver_email">
+              {{ a.approver_email }}{{ a.team_name ? ' — ' + a.team_name : ' — default' }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Statuses -->
+        <!-- <div class="form-group">
+          <label>Status</label>
+          <select formControlName="status_name">
+            <option *ngFor="let s of G_status" [value]="s">{{ s }}</option>
+          </select>
+        </div> -->
+        <!-- Status -->
+          <div class="form-group">
+            <label>Status</label>
+            <!-- NEW TICKET: show read-only 'Open', no dropdown -->
+            <ng-container *ngIf="!editingTicket">
+              <input type="text" value="Open" readonly
+                    style="background:#f3f4f6; cursor:not-allowed; color:#6b7280;" />
+            </ng-container>
+            <!-- EDITING (Admin/IT Services): show all status options -->
+            <ng-container *ngIf="editingTicket && isManager">
+              <select formControlName="status_name">
+                <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
+              </select>
+            </ng-container>
+            <!-- EDITING (non-manager): read-only current status -->
+            <ng-container *ngIf="editingTicket && !isManager">
+              <input type="text" formControlName="status_name" readonly
+                    style="background:#f3f4f6; cursor:not-allowed;" />
+            </ng-container>
+          </div>
+
+        <!-- Priority -->
+        <div class="form-group">
+          <label>Priority</label>
+          <select formControlName="priority">
+            <option *ngFor="let p of priorities" [value]="p">{{ p }}</option>
+          </select>
+        </div>
+
+        <!-- Wing: visible only for Mumbai Airoli / Chennai / Hansa Direct / Autosense -->
+        <div class="form-group" *ngIf="showWingDeskFields">
+          <label>Wing <span class="optional-label">(Optional)</span></label>
+          <select formControlName="wing_name">
+            <option value="">Select Wing</option>
+            <!-- <option *ngFor="let w of wings" [value]="w.wing_name">{{ w.wing_name }}</option> -->
+            <option *ngFor="let w of filteredWings" [value]="w.wing_name">{{ w.wing_name }}</option>
+          </select>
+        </div>
+
+        <!-- Desk Number: visible only for Mumbai Airoli / Chennai / Hansa Direct / Autosense -->
+        <div class="form-group" *ngIf="showWingDeskFields">
+          <label>Desk Number <span class="optional-label">(Optional)</span></label>
+          <input type="text" formControlName="desk_number" placeholder="Enter desk number e.g. A-101" />
+        </div>
+
+        <!-- Email ID (CC) with autocomplete -->
+        <div class="form-group email-id-field">
+          <label>Email ID (In TO:-)<span class="required-star">*</span></label>
+          <input type="text" formControlName="email_id" placeholder="Type to search email..." autocomplete="off" />
+          <ul class="email-suggestions" *ngIf="showEmailSuggestionsForEmailId">
+            <ng-container *ngIf="filteredEmailsForEmailId.length > 0; else noEmailIdResults">
+              <li *ngFor="let email of filteredEmailsForEmailId" (mousedown)="selectEmailId(email)">
+                <i class="fa-regular fa-envelope" style="color:#9ca3af; font-size:11px;"></i>
+                {{ email }}
+              </li>
+            </ng-container>
+            <ng-template #noEmailIdResults>
+              <li class="email-no-results">No matching emails found</li>
+            </ng-template>
+          </ul>
+          <span class="field-error" *ngIf="ticketForm.get('email_id')?.touched">
+            <ng-container *ngIf="ticketForm.get('email_id')?.hasError('required')">
+              Email ID is required.
+            </ng-container>
+            <ng-container *ngIf="ticketForm.get('email_id')?.hasError('email')">
+              Enter a valid email address.
+            </ng-container>
+          </span>
+        </div>
+
+        <!-- Additional Email (Optional) with autocomplete -->
+        <div class="form-group additional-email-field">
+          <label>Additional Email <span class="optional-label">(Optional)</span></label>
+          <input type="text" formControlName="additional_email" placeholder="Type to search email..."
+            autocomplete="off" />
+          <ul class="email-suggestions" *ngIf="showEmailSuggestions">
+            <ng-container *ngIf="filteredEmails.length > 0; else noAdditionalEmailResults">
+              <li *ngFor="let email of filteredEmails" (mousedown)="selectEmail(email)">
+                <i class="fa-regular fa-envelope" style="color:#9ca3af; font-size:11px;"></i>
+                {{ email }}
+              </li>
+            </ng-container>
+            <ng-template #noAdditionalEmailResults>
+              <li class="email-no-results">No matching emails found</li>
+            </ng-template>
+          </ul>
+        </div>
+
+        <!-- Attachments -->
+        <div class="form-group">
+          <label>ATTACHMENTS <span class="optional-label">(Optional)</span></label>
+          <input type="file" (change)="onFileChange($event)" accept="image/*" />
+        </div>
+
+        <!-- Description — read-only for non-owners when editing -->
+        <div class="form-group full-width">
+          <label>Description <span class="optional-label">(Optional)</span></label>
+          <textarea rows="4" formControlName="description"
+            [placeholder]="ticketForm.get('description')?.disabled ? '' : 'Enter description (optional)'"
+            [class.readonly-field]="ticketForm.get('description')?.disabled">
+  </textarea>
+          <small *ngIf="editingTicket && ticketForm.get('description')?.disabled" class="readonly-hint">
+            Description can only be edited by the ticket owner.
+          </small>
+        </div>
+
+      </div>
+
+      <div class="error-banner" *ngIf="errorMessage">
+        {{ errorMessage }}
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="save-btn" (click)="saveNewTicket()" [disabled]="creatingTicket">
+          {{ creatingTicket
+              ? (editingTicket ? 'Updating…' : 'Saving…')
+              : (editingTicket ? 'Update Ticket' : 'Save Ticket') }}
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= TICKET LIST (Only when form hidden) ================= -->
+    <div *ngIf="!showNewTicketForm && !selectedTicket">
+      <!-- CARD VIEW -->
+      <div class="ticket-wrapper" *ngIf="ticketsView === 'cards'">
+        <div class="ticket-card" *ngFor="let ticket of paginatedTickets; trackBy: trackByTicket"
+          [ngClass]="getBorderClass(ticket)">
+          <div class="ticket-header">
+            <div class="ticket-left">
+              <span class="status-dot" [ngClass]="getStatusDotClass(ticket)"></span>
+              <span class="ticket-no">{{ ticket.ticket_number }}</span>
+            </div>
+            <span class="priority-badge" [ngClass]="getPriorityBadgeClass(ticket)">
+              {{ ticket.priority }}
+            </span>
+          </div>
+          <hr class="dotted-line" />
+          <div class="ticket-body">
+            <div class="row">
+              <span class="label">User ID</span>
+              <span class="value">{{ ticket.created_by_name }}</span>
+            </div>
+            <div class="row">
+              <span class="label">Raise Date</span>
+              <span class="value">{{ ticket.created_at | date:'dd MMM yyyy' }}</span>
+            </div>
+          </div>
+          <div class="ticket-body">
+            <div class="row" style="width: 196px;">
+              <span class="label">Time</span>
+              <span class="value">{{ ticket.created_at | date:'hh:mm a' }}</span>
+            </div>
+
+           
+          
+            <div class="row">
+            <span class="label">Type</span>
+            <span class="value">{{ticket.type_name}}</span>
+            
+          </div>
+            
+          </div>
+          <div class="display_button">
+            <div class="row">
+              <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
+              <ng-container *ngIf="canManageTickets">
+                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id" [disabled]="!!ticket.assigned_to_id"
+                  (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
+                  {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                </button>
+              </ng-container>
+            </div>
+            <button class="open-btn" (click)="openTicket(ticket)">
+              Open Ticket<i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <!-- Fixed: Show edit button to Admin, IT Services, DBA, Manager -->
+            <button *ngIf="canEditTickets" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIST VIEW -->
+      <div *ngIf="ticketsView === 'list'" class="list-wrapper">
+        <table class="ticket-table">
+          <thead>
+            <tr>
+              <th>Ticket No</th>
+              <th>Priority</th>
+              <th>User ID</th>
+              <th>Raise Date</th>
+              <th>Raise At</th>
+              <th>Action</th>
+              <th></th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr *ngFor="let ticket of paginatedTickets; trackBy: trackByTicket">
+
+              <!-- Ticket Number + Status Badge -->
+              <td>
+                <div class="ticket-info">
+                  <span class="ticket-no">
+                    #{{ ticket.ticket_number }}
+                  </span>
+
+                  <span class="status-badge" [ngClass]="{
+                'status-new': ticket.status_name === 'Open',
+                'status-wip': ticket.status_name === 'In Progress',
+                'status-resolved': ticket.status_name === 'Resolved'
+              }">
+                    {{ ticket.status_name }}
+                  </span>
+                </div>
+              </td>
+
+              <!-- Priority -->
+              <td>
+                <span class="priority-badge" [ngClass]="{
+              'priority-high': ticket.priority === 'High',
+              'priority-medium': ticket.priority === 'Medium',
+              'priority-low': ticket.priority === 'Low'
+            }">
+                  {{ ticket.priority }}
+                </span>
+              </td>
+
+              <!-- User -->
+              <td>{{ ticket.created_by_name }}</td>
+
+              <!-- Date -->
+              <td>{{ ticket.created_at | date:'dd MMM yyyy' }}</td>
+
+              <!-- Time -->
+              <td>{{ ticket.created_at | date:'hh:mm a' }}</td>
+
+              <!-- Open Button -->
+              <td class="action-col">
+
+                <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
+                <ng-container *ngIf="canManageTickets">
+                  <button class="assign-btn" [class.assigned]="ticket.assigned_to_id"
+                    [disabled]="!!ticket.assigned_to_id" (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
+                    {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                  </button>
+                </ng-container>
+                <button class="open-btn" (click)="openTicket(ticket)">
+                  Open Ticket <i class="fa-solid fa-arrow-right"></i>
+                </button>
+                <!-- Fixed: Show edit button to Admin, IT Services, DBA, Manager -->
+                <button *ngIf="canEditTickets" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div *ngIf="(!paginatedTickets || paginatedTickets.length === 0) && !showNewTicketForm" class="no-data">
+      .....No tickets found
+    </div>
+
+    <div class="table-footer" *ngIf="filteredTickets.length && !showNewTicketForm">
+
+      <div class="entries-info">
+        Showing {{ticketsPagination.showingFrom}}
+        to {{ticketsPagination.showingTo}}
+        of {{ticketsPagination.total}} entries
+      </div>
+      <div class="pagination">
+        <button (click)="previousPage(ticketsPagination)">Prev</button>
+        <span>
+          Page {{ticketsPagination.page}}
+          of {{Math.ceil(ticketsPagination.total/ticketsPagination.perPage)}}
+        </span>
+        <button (click)="nextPage(ticketsPagination)">Next</button>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CLOSED TICKETS TAB ================= -->
+
+  <div *ngIf="isLoading" class="loader">
+    Loading...
+  </div>
+
+  <div *ngIf="activeSidebarTab === 'closedTickets' && !selectedTicket" class="dashboard-container">
+    <div class="header">
+      <h2>Closed Tickets</h2>
+
+      <div class="header-right">
+
+        <div class="tabs1">
+          <button class="tab-btn1" [class.active]="closedTicketsView==='cards'"
+            (click)="switchClosedTicketsView('cards')">
+            Cards
+          </button>
+          <button class="tab-btn1" [class.active]="closedTicketsView==='list'"
+            (click)="switchClosedTicketsView('list')">
+            List
+          </button>
+        </div>
+        <button class="create-btn2" (click)="goToDashboard()">
+          Back
+        </button>
+      </div>
+    </div>
+
+    <div class="table-controls">
+
+      <div class="entries">
+        Show
+        <select [(ngModel)]="selectedEntries" (change)="onEntriesChange()">
+          <option *ngFor="let e of entriesOptions" [value]="e">
+            {{e}}
+          </option>
+        </select>
+        entries
+      </div>
+    </div>
+
+    <!-- CARD VIEW -->
+    <div class="ticket-wrapper" *ngIf="closedTicketsView === 'cards'">
+      <div class="ticket-card" *ngFor="let ticket of paginatedClosedTickets" [ngClass]="getBorderClass(ticket)">
+        <div class="ticket-header">
+          <div class="ticket-left">
+            <span class="status-dot" [ngClass]="getStatusDotClass(ticket)">
+            </span>
+            <span class="ticket-no">
+              {{ ticket.ticket_number }}
+            </span>
+          </div>
+          <span class="priority-badge" [ngClass]="getPriorityBadgeClass(ticket)">
+            {{ ticket.priority }}
+          </span>
+        </div>
+        <hr class="dotted-line" />
+        <div class="ticket-body">
+          <div class="row">
+            <span class="label">User ID</span>
+            <span class="value">
+              {{ ticket.created_by_name }}
+            </span>
+          </div>
+          <div class="row">
+            <span class="label">Closed Date</span>
+            <span class="value">
+              {{ ticket.created_at | date:'dd MMM yyyy' }}
+            </span>
+          </div>
+        </div>
+         <div class="ticket-body">
+          <div class="row" style="width: 196px;">
+            <span class="label">Time</span>
+            <span class="value">
+              {{ ticket.created_at | date:'hh:mm a' }}
+            </span>
+          </div>
+
+            <div class="row">
+            <span class="label">Type</span>
+            <span class="value">
+              {{ ticket.type_name }}
+            </span>
+          </div>
+        </div>
+        <div class="display_button">
+          <button class="open-btn" (click)="openTicket(ticket)">
+            View Ticket
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIST VIEW -->
+
+    <div *ngIf="closedTicketsView === 'list'" class="list-wrapper">
+      <table class="ticket-table">
+        <thead>
+          <tr>
+            <th>Ticket No</th>
+            <th>Priority</th>
+            <th>User</th>
+            <th>Closed Date</th>
+            <th>Time</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let ticket of paginatedClosedTickets">
+            <td>
+              <div class="ticket-info">
+                <span class="ticket-no">
+                  #{{ ticket.ticket_number }}
+                </span>
+                <span class="status-badge status-closed">
+                  {{ ticket.status_name }}
+                </span>
+              </div>
+            </td>
+            <td>
+              <span class="priority-badge" [ngClass]="{
+            'priority-high': ticket.priority === 'High',
+            'priority-medium': ticket.priority === 'Medium',
+            'priority-low': ticket.priority === 'Low'
+            }">
+                {{ ticket.priority }}
+              </span>
+            </td>
+            <td>{{ ticket.created_by_name }}</td>
+            <td>{{ ticket.created_at | date:'dd MMM yyyy' }}</td>
+            <td>{{ ticket.created_at | date:'hh:mm a' }}</td>
+            <td>
+              <button class="open-btn" (click)="openTicket(ticket)">
+                View Ticket
+                <i class="fa-solid fa-arrow-right"></i>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
+
+    <div *ngIf="!paginatedClosedTickets || paginatedClosedTickets.length === 0" class="no-data">
+      .....No closed tickets found
+    </div>
+
+    <div class="table-footer" *ngIf="closedTickets.length">
+
+      <div class="entries-info">
+        Showing {{closedPagination.showingFrom}}
+        to {{closedPagination.showingTo}}
+        of {{closedPagination.total}} entries
+      </div>
+      <div class="pagination">
+        <button (click)="previousPage(closedPagination)">Prev</button>
+
+        <span>
+          Page {{closedPagination.page}}
+          of {{Math.ceil(closedPagination.total/closedPagination.perPage)}}
+        </span>
+        <button (click)="nextPage(closedPagination)">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= USERS TABLE ================= -->
+  <div *ngIf="activeSidebarTab === 'users'" class="users-container">
+    <div class="users-header" *ngIf="!showUserForm">
+      <h2>All Users</h2>
+
+      <div class="dropdown-container">
+        <select id="organization" class="org-dropdown" [(ngModel)]="userOrganization"
+          (change)="onChange(userOrganization)">
+          <option value="" class="" disabled>Select Organization</option>
+          <option *ngFor="let org of organizations" [value]="org">
+            {{ org }}
+          </option>
+        </select>
+      </div>
+
+      <button class="create-btn" (click)="goToDashboard()">Back</button>
+      <!-- <button class="create-btn" (click)="openCreateUserForm()">Create User</button> -->
+    </div>
+    <!-- CREATE / EDIT FORM -->
+    <div *ngIf="showUserForm" class="inline-user-form">
+      <!-- <h3>Create User</h3> -->
+      <h3>{{ editingUser ? 'Update User' : 'Create User' }}</h3>
+      <form [formGroup]="userForm" (ngSubmit)="saveUser()">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>First Name *</label>
+            <input formControlName="firstName" type="text" placeholder="Enter first name" />
+          </div>
+          <div class="form-group">
+            <label>Last Name *</label>
+            <input formControlName="lastName" type="text" placeholder="Enter last name" />
+          </div>
+          <div class="form-group">
+            <label>Email *</label>
+            <input formControlName="email" type="email" placeholder="Enter email address" />
+          </div>
+          <div class="form-group" *ngIf="!editingUser">
+            <label>Employee ID *</label>
+            <input formControlName="employee_id" type="text" placeholder="Enter employee ID e.g. CES0011" />
+            <span class="field-error"
+              *ngIf="userForm.get('employee_id')?.invalid && userForm.get('employee_id')?.touched">
+              Employee ID is required.
+            </span>
+          </div>
+          <!-- <div class="form-group">
+            <label>Mobile Number *</label>
+            <input formControlName="mobileNumber" type="text" placeholder="Enter 10-digit mobile number" />
+          </div> -->
+         
+          <div class="form-group">
+            <label>Team *</label>
+            <select formControlName="teamName">
+              <option value="" disabled hidden>-- Select Team --</option>
+              <option *ngFor="let t of teams" [value]="t.team_name">{{ t.team_name }}</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Role *</label>
+            <select formControlName="role">
+              <option value="user">User (requester)</option>
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          
+         
+          <div class="form-group">
+            <label>Location <span class="required-star">*</span></label>
+            <select formControlName="locationName">
+              <option value="" disabled hidden>-- Select Location --</option>
+              <option *ngFor="let loc of locations" [value]="loc.location_name">
+                {{ loc.location_name }}
+              </option>
+            </select>
+            <small style="color:#6b7280;">Required — a user cannot raise tickets until a location is set.</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Password {{ editingUser ? '(Leave blank to keep same)' : '*' }}</label>
+            <input formControlName="password" type="password" placeholder="Enter password" />
+          </div>
+          <!-- <div class="form-group">
+            <label>Organization</label>
+            <select formControlName="orgName">
+              <option [ngValue]="null">-- Select Organization --</option>
+              <option *ngFor="let org of allOrganizationObjects" [ngValue]="org.orgName">
+                {{ org.orgName }}
+              </option>
+            </select>
+          </div>
+            <div class="form-group">
+            <label>Wing</label>
+            <select formControlName="wingName">
+              <option value="" disabled hidden>-- Select Wing --</option>
+              <option *ngFor="let w of wings" [value]="w.wing_name">
+                {{ w.wing_name }}
+              </option>
+            </select>
+          </div> -->
+          <div class="form-group">
+            <label>Organization</label>
+            <select formControlName="orgName"
+                    (change)="onUserFormOrgChange(userForm.get('orgName')?.value)">
+              <option [ngValue]="null">-- Select Organization --</option>
+              <option *ngFor="let org of allOrganizationObjects" [ngValue]="org.orgName">
+                {{ org.orgName }}
+              </option>
+            </select>
+          </div>
+
+          <div class="form-group" *ngIf="userForm.get('orgName')?.value">
+
+            <!-- HANSA CEQUITY → Mumbai Kurla  |  AUTOSENSE → Chennai  (read-only) -->
+            <ng-container *ngIf="!showAiroliWingSelector">
+              <label>Wing</label>
+              <input type="text" formControlName="wingName" readonly
+                    style="background:#f3f4f6; cursor:not-allowed;" />
+            </ng-container>
+
+            <!-- HANSA DIRECT → Airoli + A / B / C picker -->
+            <ng-container *ngIf="showAiroliWingSelector">
+              <label>Wing <span class="required-star">*</span></label>
+              <input type="text" value="Mumbai Airoli" readonly
+                    style="background:#f3f4f6; cursor:not-allowed; margin-bottom:6px;" />
+              <select formControlName="airoliWing">
+                <option value="">-- Select Wing --</option>
+                <option *ngFor="let w of airoliWings" [value]="w">Wing {{ w }}</option>
+              </select>
+            </ng-container>
+
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="save-btn" [disabled]="userForm.invalid || isSaving">
+            {{ isSaving ? 'Saving...' : (editingUser ? 'Update' : 'Create') }}
+          </button>
+          <button type="button" class="cancel-btn" (click)="closeUserForm()">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- USERS TABLE -->
+    <div *ngIf="!showUserForm" class="table-scroll-container">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th>Sr No</th>
+            <th>First Name</th>
+            <th>Last Name</th>
+            <th>Email</th>
+            <!-- <th>Mobile Number</th> -->
+            <th>Team</th>
+            <th>Location</th>
+            <!-- <th>Wing</th> -->
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let user of paginatedUsers; let i = index">
+            <td><b>{{ (userPage - 1) * usersPerPage + i + 1 }}</b></td>
+            <td><b>{{ user.firstName }}</b></td>
+            <td><b>{{ user.lastName }}</b></td>
+            <td><b>{{ user.email }}</b></td>
+            <!-- <td><b>{{ user.mobileNumber }}</b></td> -->
+            <td><b>{{ user.teamName }}</b></td>
+            <td><b>{{ user.locationName || '—' }}</b></td>
+            <!-- <td><b>{{ user.wingName || '—' }}</b></td> -->
+            <td>
+              <button class="edit-btn" (click)="editUser(user)">Edit</button>
+              <button class="delete-btn" (click)="deleteUser(user.id)">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-footer" *ngIf="totalUserPages > 1 && !showUserForm">
+      <div class="entries-info">
+        Showing {{ (userPage - 1) * usersPerPage + 1 }}
+        to {{ Math.min(userPage * usersPerPage, filteredUsers.length) }}
+        of {{ filteredUsers.length }} entries
+      </div>
+      <div class="pagination">
+        <button (click)="prevUserPage()" [disabled]="userPage === 1">Prev</button>
+        <span>Page {{ userPage }} of {{ totalUserPages }}</span>
+        <button (click)="nextUserPage()" [disabled]="userPage === totalUserPages">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TEAMS TABLE ================= -->
+  <div *ngIf="activeSidebarTab === 'teams'" class="users-container">
+    <div class="users-header" *ngIf="!showTeamForm">
+      <h2>All Teams</h2>
+      <button class="create-btn" (click)="goToDashboard()">Back</button>
+      <button class="create-btn" (click)="openCreateTeamForm()">Create Team</button>
+    </div>
+
+    <!-- CREATE / EDIT FORM -->
+    <div *ngIf="showTeamForm" class="inline-user-form">
+      <h3>{{ editingTeam ? 'Update Team' : 'Create Team' }}</h3>
+      <form [formGroup]="teamForm" (ngSubmit)="saveTeam()">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Team Name *</label>
+            <input formControlName="team_name" type="text" placeholder="Enter team name" />
+            <span class="field-error" *ngIf="teamForm.get('team_name')?.invalid && teamForm.get('team_name')?.touched">
+              Team name is required.
+            </span>
+          </div>
+          <div class="form-group">
+            <label>Location *</label>
+            <select formControlName="location_name">
+              <option value="" disabled hidden>-- Select Location --</option>
+              <option *ngFor="let loc of locations" [value]="loc.location_name">
+                {{ loc.location_name }}
+              </option>
+            </select>
+            <span class="field-error"
+              *ngIf="teamForm.get('location_name')?.invalid && teamForm.get('location_name')?.touched">
+              Location is required.
+            </span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="save-btn" [disabled]="teamForm.invalid || isSaving">
+            {{ isSaving ? 'Saving...' : (editingTeam ? 'Update' : 'Create') }}
+          </button>
+          <button type="button" class="cancel-btn" (click)="closeTeamForm()">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div *ngIf="!showTeamForm" class="table-scroll-container">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th>Sr No</th>
+            <th>Team Name</th>
+            <th>Location</th>
+            <th>Created At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let team of paginatedTeams; let i = index; trackBy: trackByTeam">
+            <td><b>{{ (teamPage - 1) * teamsPerPage + i + 1 }}</b></td>
+            <td><b>{{ team.team_name }}</b></td>
+            <td><b>{{ team.location_name || '—' }}</b></td>
+            <td><b>{{ team.created_at ? (team.created_at | date:'dd MMM yyyy, hh:mm a') : '—' }}</b></td>
+            <td>
+              <button class="edit-btn" (click)="editTeam(team)">Edit</button>
+              <button class="delete-btn" (click)="deleteTeam(team.team_id!)">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-footer" *ngIf="totalTeamPages > 1 && !showTeamForm">
+      <div class="entries-info">
+        Showing {{ (teamPage - 1) * teamsPerPage + 1 }}
+        to {{ Math.min(teamPage * teamsPerPage, filteredTeams.length) }}
+        of {{ filteredTeams.length }} entries
+      </div>
+      <div class="pagination">
+        <button (click)="prevTeamPage()" [disabled]="teamPage === 1">Prev</button>
+        <span>Page {{ teamPage }} of {{ totalTeamPages }}</span>
+        <button (click)="nextTeamPage()" [disabled]="teamPage === totalTeamPages">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= GLOBAL TICKET DETAILS ================= -->
+
+  <div *ngIf="selectedTicket" class="dashboard-container">
+    <div class="header">
+      <h2>Ticket Details</h2>
+      <div class="header-right">
+        <button class="create-btn2" (click)="closeTicketDetails()">
+          Back
+        </button>
+      </div>
+    </div>
+
+    <div class="detail-row">
+  <span class="label">Approval Status</span>
+  <span class="value">
+    <span class="approval-badge approval-pending"
+          *ngIf="selectedTicket.approval_status === 'pending' || !selectedTicket.approval_status">
+      ⏳ Pending Approval
+    </span>
+    <span class="approval-badge approval-approved"
+          *ngIf="selectedTicket.approval_status === 'approved'">
+      ✅ Approved by {{ selectedTicket.approved_by }}
+    </span>
+    <span class="approval-badge approval-rejected"
+          *ngIf="selectedTicket.approval_status === 'not_approved'">
+      ❌ Not Approved by {{ selectedTicket.approved_by }}
+    </span>
+  </span>
+</div>
+
+    <div class="ticket-details-container">
+
+      <div class="details-grid">
+
+        <div class="detail-row">
+          <span class="label">Ticket Number</span>
+          <span class="value">{{ selectedTicket.ticket_number }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Subject</span>
+          <span class="value">{{ selectedTicket.subject || 'N/A' }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Raised By</span>
+          <span class="value">{{ selectedTicket.created_by_name }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Team</span>
+          <span class="value">{{ selectedTicket.team_name }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Assign To</span>
+          <span class="value">
+            {{ selectedTicket.assigned_to_name || 'Not Assigned' }}
+          </span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Client Name</span>
+          <span class="value">{{ selectedTicket.client_name || 'N/A' }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Request Type</span>
+          <span class="value">{{ selectedTicket.type_name }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Sub Request Type</span>
+          <span class="value">{{ selectedTicket.issue_name }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Status</span>
+          <span class="value">{{ selectedTicket.status_name }}</span>
+        </div>
+        <!-- <label>Wing <span class="required-star">*</span></label> -->
+
+        <div class="detail-row">
+          <span class="label">Priority</span>
+          <span class="value">{{ selectedTicket.priority }}</span>
+        </div>
+
+        <!-- <div class="detail-row" *ngIf="selectedTicket?.wing_name">
+          <span class="label">Wing</span>
+          <span class="value">{{ selectedTicket.wing_name }}</span>
+        </div> -->
+        <div class="detail-row" *ngIf="selectedTicket?.wing_name || selectedTicket?.location_name">
+          <span class="label">Wing</span>
+          <span class="value">{{ selectedTicket.wing_name}}</span>
+        </div>
+
+        <div class="detail-row" *ngIf="selectedTicket?.desk_number">
+          <span class="label">Desk Number</span>
+          <span class="value">{{ selectedTicket.desk_number }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Email ID</span>
+          <span class="value">{{ selectedTicket.email_id || 'N/A' }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Additional Email</span>
+          <span class="value">{{ selectedTicket.additional_email || 'N/A' }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Attachment</span>
+          <span class="value">
+            <ng-container *ngIf="selectedTicket?.attachment; else noAttachment">
+              <a href="javascript:void(0)" (click)="viewAttachment(selectedTicket.attachment)">
+                {{ selectedTicket.attachment }}
+              </a>
+              <button class="view-btn" (click)="viewAttachment(selectedTicket.attachment)">
+                View
+              </button>
+            </ng-container>
+            <ng-template #noAttachment>
+              N/A
+            </ng-template>
+          </span>
+        </div>
+
+        <!-- Modal to show the image -->
+        <div class="attachment-modal" *ngIf="showAttachmentModal" (click)="closeAttachmentModal()">
+          <div class="attachment-modal-content" (click)="$event.stopPropagation()">
+            <img [src]="currentAttachmentUrl" alt="Attachment Image" />
+            <button class="close-btn" (click)="closeAttachmentModal()">Close</button>
+          </div>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Description</span>
+          <span class="value">{{ selectedTicket.description }}</span>
+        </div>
+
+        <div class="detail-row">
+          <span class="label">Raised On</span>
+          <span class="value">
+            {{ selectedTicket.created_at | date:'dd MMM yyyy hh:mm a' }}
+          </span>
+        </div>
+
+        <!-- Description — read-only for everyone in the detail view -->
+        <div class="detail-row full-width-row">
+          <span class="label">Description</span>
+          <div class="description-box">
+            <span *ngIf="selectedTicket.description; else noDesc">
+              {{ selectedTicket.description }}
+            </span>
+            <ng-template #noDesc>
+              <span class="no-value">No description provided.</span>
+            </ng-template>
+            <small class="readonly-hint" *ngIf="!isOwnerOfSelectedTicket">
+              <i class="fa-solid fa-lock" style="font-size:10px;"></i>
+              Only the ticket owner can edit this description.
+            </small>
+          </div>
+        </div>
+
+        <!-- Reopen — owner may reopen a Resolved/Closed ticket (README §4) -->
+        <div class="detail-row full-width-row"
+             *ngIf="isOwnerOfSelectedTicket &&
+                    (selectedTicket.status_name === 'Resolved' || selectedTicket.status_name === 'Closed')">
+          <button class="assign-btn" (click)="reopenTicket()">Reopen Ticket</button>
+        </div>
+
+        <!-- COMMENTS SECTION — visible to all, but only IT Services / Admin can post -->
+        <div class="comments-section full-width-row">
+
+          <h4 class="comments-title">
+            <i class="fa-solid fa-comments"></i>
+            Comments
+            <span class="comment-count" *ngIf="ticketComments.length > 0">
+              {{ ticketComments.length }}
+            </span>
+          </h4>
+
+          <!-- Comment List -->
+          <div class="comments-list" *ngIf="ticketComments.length > 0; else noComments">
+            <div class="comment-item" *ngFor="let c of ticketComments">
+              <div class="comment-avatar">
+                {{ c.user_name.charAt(0).toUpperCase() }}
+              </div>
+              <div class="comment-body">
+                <div class="comment-meta">
+                  <span class="comment-author">{{ c.user_name }}</span>
+                  <span class="comment-team">{{ c.team_name }}</span>
+                  <span class="comment-date">{{ c.created_at | date:'dd MMM yyyy, hh:mm a' }}</span>
+                </div>
+                <p class="comment-text">{{ c.comment_text }}</p>
+              </div>
+            </div>
+          </div>
+
+          <ng-template #noComments>
+            <p class="no-comments-text">No comments yet.</p>
+          </ng-template>
+
+          <!-- Add Comment — only for IT Services / Admin -->
+          <div class="add-comment-box" *ngIf="canCommentOnTicket">
+            <textarea [(ngModel)]="newCommentText" placeholder="Write your comment here..." rows="3"
+              class="comment-textarea">
+    </textarea>
+            <div class="comment-error" *ngIf="commentError">{{ commentError }}</div>
+            <button class="submit-comment-btn" (click)="submitComment()"
+              [disabled]="!newCommentText.trim() || isSubmittingComment">
+              <i class="fa-solid fa-paper-plane"></i>
+              {{ isSubmittingComment ? 'Posting...' : 'Post Comment' }}
+            </button>
+          </div>
+
+          <p class="read-only-note" *ngIf="!canCommentOnTicket">
+            <i class="fa-solid fa-circle-info"></i>
+            Only IT Services And Admin teams can add comments.
+          </p>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- END layout -->
+
+<!-- Assigned Form -->
+
+<div class="modal-overlay" *ngIf="showAssignModal">
+  <div class="modal-box">
+
+    <h3>Assign Ticket</h3>
+
+    <form [formGroup]="assignForm">
+
+      <!-- Organization -->
+      <div class="form-group">
+        <label>Organization *</label>
+        <select formControlName="orgName" (change)="onAssignOrgChange()">
+          <option value="">Select Organization</option>
+          <option *ngFor="let org of organizations" [value]="org">
+            {{ org }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Assign To -->
+      <div class="form-group">
+        <label>Assign To *</label>
+        <select formControlName="assignedTo">
+          <option value="">Select User</option>
+          <option *ngFor="let user of filteredAssignUsers" [value]="user.id">
+            {{ user.firstName }} {{ user.lastName }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Date Time -->
+      <div class="form-group">
+        <label>Estimated End Date *</label>
+        <input type="date" formControlName="estimatedEndDate">
+      </div>
+
+      <!-- Remark -->
+      <div class="form-group">
+        <label>Remark</label>
+        <textarea formControlName="remark"></textarea>
+      </div>
+
+      <!-- Buttons -->
+      <div class="modal-actions">
+        <button type="button" (click)="closeAssignModal()">Cancel</button>
+        <button type="button" (click)="submitAssign()">Assign</button>
+      </div>
+
+    </form>
+
+  </div>
+</div>
+
+<!-- ================= REASSIGN MODAL ================= -->
+<div class="modal-overlay" *ngIf="showReassignModal">
+  <div class="modal-box">
+    <h3>Reassign Tickets</h3>
+    <p>
+      User <b>{{userToDeleteName}}</b> has
+      <b>{{pendingTicketCount}}</b> pending tickets.
+    </p>
+    <p>Please select a user to reassign the tickets:</p>
+    <select [(ngModel)]="selectedReassignUserId">
+      <option [ngValue]="null">Select User</option>
+      <option *ngFor="let u of availableReassignUsers" [ngValue]="u.id">
+        {{u.firstName}} {{u.lastName}} ({{u.teamName}})
+      </option>
+    </select>
+    <div class="modal-actions">
+      <button (click)="confirmReassignAndDelete()">Reassign & Delete</button>
+      <button (click)="closeReassignModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  © 2026 - Developed and Maintained by Hansa Cequity
+</footer>

@@ -1,0 +1,167 @@
+/* ===== RESET ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* MAIN WRAPPER */
+.main-wrapper {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* CARD */
+.login-card {
+  width: 100%;
+  max-width: 1100px;
+  height: 650px;
+  display: flex;
+  border-radius: 30px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+/* LEFT */
+.left-section {
+  width: 60%;
+}
+
+.left-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* RIGHT */
+.right-section {
+  width: 40%;
+  background: linear-gradient(135deg, #0f7c78, #0c6a66);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* FORM */
+.form-wrapper {
+  width: 75%;
+  color: #ffffff;
+}
+
+/* LABELS */
+.form-group1 label,
+.form-group2 label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+/* INPUTS (UPDATED LIKE FORGOT PASSWORD) */
+.form-group1 input,
+.form-group2 input {
+  width: 100%;
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+  transition: 0.3s ease;
+}
+
+.form-group1 input::placeholder,
+.form-group2 input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 🔥 HOVER */
+.form-group1 input:hover,
+.form-group2 input:hover {
+  border-color: #d4e157;
+}
+
+/* 🔥 FOCUS (YELLOW GLOW SAME AS FORGOT PASSWORD) */
+.form-group1 input:focus,
+.form-group2 input:focus {
+  border-color: #b6cf3b;
+  box-shadow: 0 0 8px rgba(182, 207, 59, 0.8);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* FORGOT LINK */
+.forgot-link {
+  text-align: right;
+  margin-bottom: 20px;
+}
+
+.forgot-link a {
+  color: #c6ff2e;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+/* BUTTON */
+button {
+  width: 100%;
+  padding: 12px;
+  border-radius: 30px;
+  border: none;
+  background-color: #b6cf3b;
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+button:hover {
+  background-color: #a3bb2f;
+  transform: translateY(-2px);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* REGISTER LINK */
+.register-link {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.register-link a {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* ERROR */
+.error-msg {
+  margin-top: 15px;
+  color: #ffb3b3;
+  text-align: center;
+}
+
+/* ===== MOBILE ===== */
+@media (max-width: 600px) {
+  .form-wrapper {
+    max-width: 100%;
+  }
+
+  input {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  button {
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .left-section {
+    height: 180px;
+  }
+}
