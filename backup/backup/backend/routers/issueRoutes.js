@@ -10,11 +10,16 @@ const {
 
 const validate = require("../middlewares/issueValidate");
 const issueSchema = require("../validators/issueValidator");
+const authenticate = require('../middlewares/auth');
+const { requireAdmin } = require('../middlewares/rbac');
 
-router.get("/", getIssues);
-router.get("/:id", getIssue);
-router.post("/", validate(issueSchema), createIssueData);
-router.put("/:id", validate(issueSchema), updateIssueData);
-router.delete("/:id", deleteIssueData);
+// Reads: any authenticated user (needed for ticket-form dropdowns).
+router.get("/", authenticate, getIssues);
+router.get("/:id", authenticate, getIssue);
+
+// Writes: Admin only.
+router.post("/", authenticate, requireAdmin, validate(issueSchema), createIssueData);
+router.put("/:id", authenticate, requireAdmin, validate(issueSchema), updateIssueData);
+router.delete("/:id", authenticate, requireAdmin, deleteIssueData);
 
 module.exports = router;

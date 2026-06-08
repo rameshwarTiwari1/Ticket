@@ -4,7 +4,7 @@ const router              = express.Router();
 const teamController      = require('../controllers/teamController');
 const teamValidate        = require('../middlewares/teamValidate');
 const authenticate        = require('../middlewares/auth');
-const authorizeTeamAccess = require('../utils/authorize');
+const { requireAdmin }    = require('../middlewares/rbac');
 
 // ─── PUBLIC — no token needed (registration dropdown) ────────────────────────
 router.get('/public', teamController.getTeams);
@@ -13,9 +13,9 @@ router.get('/public', teamController.getTeams);
 router.get('/',    teamController.getTeams);
 router.get('/:id', teamController.getTeam);
 
-// ─── PROTECTED — auth + team access required ─────────────────────────────────
-router.post('/',    authenticate, authorizeTeamAccess, teamValidate, teamController.createTeam);
-router.put('/:id',  authenticate, authorizeTeamAccess, teamValidate, teamController.updateTeam);
-router.delete('/:id', authenticate, authorizeTeamAccess, teamController.deleteTeam);
+// ─── ADMIN ONLY (README §3: Admin manages teams) ─────────────────────────────
+router.post('/',    authenticate, requireAdmin, teamValidate, teamController.createTeam);
+router.put('/:id',  authenticate, requireAdmin, teamValidate, teamController.updateTeam);
+router.delete('/:id', authenticate, requireAdmin, teamController.deleteTeam);
 
 module.exports = router;

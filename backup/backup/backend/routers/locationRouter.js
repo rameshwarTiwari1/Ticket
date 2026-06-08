@@ -7,28 +7,16 @@ const {
     createLocationSchema,
     updateLocationSchema
 } = require('../validators/locationValidator');
+const authenticate = require('../middlewares/auth');
+const { requireAdmin } = require('../middlewares/rbac');
 
-// CREATE
-router.post(
-    '/',
-    validate(createLocationSchema),
-    locationController.createLocation
-);
+// READ: any authenticated user (needed for dropdowns).
+router.get('/', authenticate, locationController.getLocations);
+router.get('/:id', authenticate, locationController.getLocationById);
 
-// READ ALL
-router.get('/', locationController.getLocations);
-
-// READ ONE
-router.get('/:id', locationController.getLocationById);
-
-// UPDATE
-router.put(
-    '/:id',
-    validate(updateLocationSchema),
-    locationController.updateLocation
-);
-
-// DELETE
-router.delete('/:id', locationController.deleteLocation);
+// WRITE: Admin only.
+router.post('/', authenticate, requireAdmin, validate(createLocationSchema), locationController.createLocation);
+router.put('/:id', authenticate, requireAdmin, validate(updateLocationSchema), locationController.updateLocation);
+router.delete('/:id', authenticate, requireAdmin, locationController.deleteLocation);
 
 module.exports = router;

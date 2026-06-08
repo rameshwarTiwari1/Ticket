@@ -61,6 +61,16 @@ const updateTicketSchema = Joi.object({
   additional_email:  Joi.string().allow('', null).optional(),
   client_name:       Joi.string().allow('', null).optional(),
   org_name:          Joi.string().allow('', null).optional(),
+  // The edit form re-sends these (they're ignored by the model, but must be
+  // accepted so the strict validator doesn't 400 the whole update).
+  created_by_name:        Joi.string().allow('', null).optional(),
+  approver_email:         Joi.string().allow('', null).optional(),
+  wing_name:              Joi.string().allow('', null).optional(),
+  desk_number:            Joi.string().allow('', null).optional(),
+  wing_id:                Joi.any().optional(),
+  location_id:            Joi.any().optional(),
+  created_at_location_id: Joi.any().optional(),
+  attachment:             Joi.any().optional(),
 }).options({ stripUnknown: true });
 
 // ─── ASSIGN TICKET ───────────────────────────────────────────────────────────

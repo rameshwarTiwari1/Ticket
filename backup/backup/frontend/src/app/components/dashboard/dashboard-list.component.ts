@@ -296,6 +296,35 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
      enforced field-by-field in editTicket()). Users (requesters) cannot edit. */
   get canEditTickets(): boolean { return this.isAdmin || this.isSiteManager || this.isEmployee; }
 
+  /* Per-ticket edit right: admin/manager (their scoped list) always; an employee
+     only on tickets ASSIGNED to them (matches backend canWorkTicket). */
+  canEditRow(ticket: MyTicket): boolean {
+    if (this.isAdmin || this.isSiteManager) return true;
+    if (this.isEmployee) return Number((ticket as any).assigned_to_id) === Number(this.userId);
+    return false;
+  }
+
+  /* Mirrors backend constants/roles.js TRANSITIONS — valid next status per current. */
+  private readonly STATUS_TRANSITIONS: { [k: string]: string[] } = {
+    'Pending Approval': ['Approved', 'Rejected'],
+    'Approved':         ['In Progress', 'Open'],
+    'Open':             ['In Progress', 'On Hold'],
+    'In Progress':      ['On Hold', 'Resolved'],
+    'On Hold':          ['In Progress', 'Resolved'],
+    'Resolved':         ['Closed', 'Reopened'],
+    'Reopened':         ['In Progress', 'On Hold'],
+    'Rejected':         [],
+    'Closed':           ['Reopened'],
+  };
+
+  /* Status choices for the edit dropdown: the current status plus its valid next
+     states, so a user can't pick a transition the backend will reject (400). */
+  allowedStatusOptions(): string[] {
+    const current = this.editingTicket?.status_name || '';
+    const next = this.STATUS_TRANSITIONS[current] || [];
+    return [current, ...next].filter((s, i, arr) => !!s && arr.indexOf(s) === i);
+  }
+
   /* ============================================================
      LOCATION HELPER — resolve current user's location_id
   ============================================================ */
@@ -483,6 +512,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     // Only Admin and the Manager of the ticket's team+location may assign (README §3).
     if (!this.canManageTickets) return;
 
+    // A ticket can only be assigned once it has been approved (README §6).
+    if ((ticket as any).approval_status !== 'approved') {
+      alert('This ticket must be approved before it can be assigned.');
+      return;
+    }
+
     // Location check: non-Admin can only assign tickets from their location
     if (!this.isAdmin) {
       const userLocId = this.getCurrentUserLocationId();
@@ -595,7 +630,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   ============================================================ */
   loadClosedTickets(): void {
     const userId         = this.authService.getCurrentUserId() ?? 0;
-    const closedStatuses = ['closed', 'resolved'];
+    const closedStatuses = ['closed', 'resolved', 'rejected'];
     const selectedOrg    = this.dashboardOrganization.toLowerCase().trim();
     const locationId     = this.getCurrentUserLocationId();
 
@@ -1065,7 +1100,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    if (!this.canEditTickets) return;
+    if (!this.canEditRow(ticket)) return;
 
     this.activeSidebarTab  = 'viewTickets';
     this.selectedTicket    = null;
@@ -1447,9 +1482,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   applyTabFilter(): void {
     switch (this.activeTicketTab) {
-      case 'wip':    this.filteredTickets = this.dateFilteredTickets.filter(t => t.status_name === 'In Progress'); break;
+      case 'wip':    this.filteredTickets = this.dateFilteredTickets.filter(t => ['In Progress', 'On Hold'].includes(t.status_name)); break;
       case 'open':   this.filteredTickets = this.dateFilteredTickets.filter(t => ['Open', 'Reopened', 'Pending Approval', 'Approved'].includes(t.status_name)); break;
-      case 'closed': this.filteredTickets = this.dateFilteredTickets.filter(t => t.status_name === 'Closed' || t.status_name === 'Resolved'); break;
+      case 'closed': this.filteredTickets = this.dateFilteredTickets.filter(t => ['Closed', 'Resolved', 'Rejected'].includes(t.status_name)); break;
       default:       this.filteredTickets = [...this.dateFilteredTickets];
     }
     this.applySearchFilter();
@@ -1513,13 +1548,15 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   calculateCounts(): void {
     const openish = ['Open', 'Reopened', 'Pending Approval', 'Approved'];
+    const wipish  = ['In Progress', 'On Hold'];
+    const closedish = ['Closed', 'Resolved', 'Rejected'];
     this.totalRaised   = this.dateFilteredTickets.length;
     this.totalResolved = this.dateFilteredTickets.filter(t => t.status_name === 'Closed' || t.status_name === 'Resolved').length;
     this.totalPaused   = this.dateFilteredTickets.filter(t => t.status_name === 'On Hold').length;   // paused = On Hold
     this.allCount      = this.dateFilteredTickets.length;
-    this.wipCount      = this.dateFilteredTickets.filter(t => t.status_name === 'In Progress').length;
+    this.wipCount      = this.dateFilteredTickets.filter(t => wipish.includes(t.status_name)).length;
     this.openCount     = this.dateFilteredTickets.filter(t => openish.includes(t.status_name)).length;
-    this.closedCount   = this.dateFilteredTickets.filter(t => t.status_name === 'Closed' || t.status_name === 'Resolved').length;
+    this.closedCount   = this.dateFilteredTickets.filter(t => closedish.includes(t.status_name)).length;
   }
 
   switchTicketTab(tab: 'all' | 'wip' | 'open' | 'closed'): void {
@@ -1624,7 +1661,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       this.tickets = [...this.allTickets];
       this.applyAllFilters();
 
-      const closedStatuses = ['closed', 'resolved'];
+      const closedStatuses = ['closed', 'resolved', 'rejected'];
       const selectedOrg    = org.toLowerCase().trim();
       this.closedTickets          = this.allTickets.filter(t =>
         closedStatuses.includes((t.status_name || '').toLowerCase()) &&
@@ -1659,9 +1696,14 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   getAttachmentUrl(fileName: string): string {
     if (!fileName) return '';
-    if (fileName.startsWith('http'))     return fileName;
-    if (fileName.startsWith('/uploads')) return `http://localhost:5000${fileName}`;
-    return `http://localhost:5000/uploads/${fileName}`;
+    if (fileName.startsWith('http')) return fileName;
+    // Files are served by the API host at /uploads (App.js static mount).
+    const base = environment.apiUrl.replace(/\/api\/?$/, '');   // http://localhost:3008
+    const path = fileName.replace(/\\/g, '/');
+    if (path.startsWith('/uploads')) return `${base}${path}`;
+    // multer stores paths like "uploads/123-file.png" — normalise to /uploads/<name>
+    const name = path.replace(/^.*uploads[\/]/, '');
+    return `${base}/uploads/${name}`;
   }
 
   getAttachmentFileName(url: string): string { if (!url) return ''; return url.split('/').pop() || ''; }

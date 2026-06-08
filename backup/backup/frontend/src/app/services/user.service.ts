@@ -30,13 +30,6 @@ export class UserService {
     );
   }
 
-  /* ================= VALIDATE TOKEN ================= */
-  validateToken(): Observable<{ valid: boolean; user: User }> {
-    const token = localStorage.getItem('token') || '';
-    const headers = new HttpHeaders({ Authorization: `Bearer ${token}` });
-    return this.http.get<{ valid: boolean; user: User }>(`${this.apiUrl}/validate`, { headers });
-  }
-
   /* ================= GET ALL USERS ================= */
   getAllUsers(): Observable<User[]> {
     const token = localStorage.getItem('token') || '';

@@ -10,7 +10,7 @@ const {
   deleteOrganization,
 } = require('../controllers/organizationController');
 const authenticate        = require('../middlewares/auth');
-const authorizeTeamAccess = require('../utils/authorize');
+const { requireAdmin }    = require('../middlewares/rbac');
 const { validate }        = require('../middlewares/organizationValidate');
 const {
   createOrganizationSchema,
@@ -25,9 +25,9 @@ router.get('/',              authenticate, getOrganizations);
 router.get('/by-name/:name', authenticate, getOrganizationByName);
 router.get('/:id',           authenticate, getOrganizationById);
 
-// ─── ADMIN / IT Services only ────────────────────────────────────────────────
-router.post('/',    authenticate, authorizeTeamAccess, validate(createOrganizationSchema), createOrganization);
-router.put('/:id',  authenticate, authorizeTeamAccess, validate(updateOrganizationSchema), updateOrganization);
-router.delete('/:id', authenticate, authorizeTeamAccess, deleteOrganization);
+// ─── ADMIN ONLY (README §3) ──────────────────────────────────────────────────
+router.post('/',    authenticate, requireAdmin, validate(createOrganizationSchema), createOrganization);
+router.put('/:id',  authenticate, requireAdmin, validate(updateOrganizationSchema), updateOrganization);
+router.delete('/:id', authenticate, requireAdmin, deleteOrganization);
 
 module.exports = router;

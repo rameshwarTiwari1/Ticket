@@ -167,9 +167,9 @@
       <div class="summary-card3">
         <div class="left">
           <i class="fa-solid fa-circle"></i>
-          <span>Work In Progess</span>
+          <span>Work In Progress</span>
         </div>
-        <span class="count">{{ totalPaused }}</span>
+        <span class="count">{{ wipCount }}</span>
       </div>
 
     <div class="summary-card2">
@@ -340,10 +340,10 @@
                 </span>
 
                 <span class="status-badge" [ngClass]="{
-                'status-new': ticket.status_name === 'Open',
-                'status-wip': ticket.status_name === 'In Progress',
+                'status-new': ['Open', 'Pending Approval', 'Approved'].includes(ticket.status_name),
+                'status-wip': ['In Progress', 'On Hold'].includes(ticket.status_name),
                 'status-resolved': ticket.status_name === 'Resolved',
-                'status-closed': ticket.status_name === 'Closed',
+                'status-closed': ['Closed', 'Rejected'].includes(ticket.status_name),
                 'status-reopen': ticket.status_name === 'Reopened'
               }">
                   {{ ticket.status_name }}
@@ -595,19 +595,19 @@
         <!-- Status -->
           <div class="form-group">
             <label>Status</label>
-            <!-- NEW TICKET: show read-only 'Open', no dropdown -->
+            <!-- NEW TICKET: status is set by the server to 'Pending Approval' -->
             <ng-container *ngIf="!editingTicket">
-              <input type="text" value="Open" readonly
+              <input type="text" value="Pending Approval" readonly
                     style="background:#f3f4f6; cursor:not-allowed; color:#6b7280;" />
             </ng-container>
-            <!-- EDITING (Admin/IT Services): show all status options -->
-            <ng-container *ngIf="editingTicket && isManager">
+            <!-- EDITING (Admin / Manager / assigned Employee): editable, lifecycle-aware -->
+            <ng-container *ngIf="editingTicket && canEditTickets">
               <select formControlName="status_name">
-                <option *ngFor="let s of statuses" [value]="s">{{ s }}</option>
+                <option *ngFor="let s of allowedStatusOptions()" [value]="s">{{ s }}</option>
               </select>
             </ng-container>
-            <!-- EDITING (non-manager): read-only current status -->
-            <ng-container *ngIf="editingTicket && !isManager">
+            <!-- EDITING (no status rights): read-only current status -->
+            <ng-container *ngIf="editingTicket && !canEditTickets">
               <input type="text" formControlName="status_name" readonly
                     style="background:#f3f4f6; cursor:not-allowed;" />
             </ng-container>
@@ -768,7 +768,7 @@
               Open Ticket<i class="fa-solid fa-arrow-right"></i>
             </button>
             <!-- Fixed: Show edit button to Admin, IT Services, DBA, Manager -->
-            <button *ngIf="canEditTickets" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
+            <button *ngIf="canEditRow(ticket)" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
           </div>
         </div>
       </div>
@@ -799,9 +799,11 @@
                   </span>
 
                   <span class="status-badge" [ngClass]="{
-                'status-new': ticket.status_name === 'Open',
-                'status-wip': ticket.status_name === 'In Progress',
-                'status-resolved': ticket.status_name === 'Resolved'
+                'status-new': ['Open', 'Pending Approval', 'Approved'].includes(ticket.status_name),
+                'status-wip': ['In Progress', 'On Hold'].includes(ticket.status_name),
+                'status-resolved': ticket.status_name === 'Resolved',
+                'status-closed': ['Closed', 'Rejected'].includes(ticket.status_name),
+                'status-reopen': ticket.status_name === 'Reopened'
               }">
                     {{ ticket.status_name }}
                   </span>
@@ -834,7 +836,9 @@
                 <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
                 <ng-container *ngIf="canManageTickets">
                   <button class="assign-btn" [class.assigned]="ticket.assigned_to_id"
-                    [disabled]="!!ticket.assigned_to_id" (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
+                    [disabled]="!!ticket.assigned_to_id || ticket.approval_status !== 'approved'"
+                    [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
+                    (click)="!ticket.assigned_to_id && ticket.approval_status === 'approved' && openAssignModal(ticket)">
                     {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
                   </button>
                 </ng-container>
@@ -842,7 +846,7 @@
                   Open Ticket <i class="fa-solid fa-arrow-right"></i>
                 </button>
                 <!-- Fixed: Show edit button to Admin, IT Services, DBA, Manager -->
-                <button *ngIf="canEditTickets" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
+                <button *ngIf="canEditRow(ticket)" class="edit-btn1" (click)="editTicket(ticket)">Edit</button>
               </td>
             </tr>
           </tbody>
@@ -1453,11 +1457,6 @@
         </div>
 
         <div class="detail-row">
-          <span class="label">Description</span>
-          <span class="value">{{ selectedTicket.description }}</span>
-        </div>
-
-        <div class="detail-row">
           <span class="label">Raised On</span>
           <span class="value">
             {{ selectedTicket.created_at | date:'dd MMM yyyy hh:mm a' }}
@@ -1520,7 +1519,7 @@
             <p class="no-comments-text">No comments yet.</p>
           </ng-template>
 
-          <!-- Add Comment — only for IT Services / Admin -->
+          <!-- Add Comment — Admin/Manager, the assigned employee, or the ticket owner -->
           <div class="add-comment-box" *ngIf="canCommentOnTicket">
             <textarea [(ngModel)]="newCommentText" placeholder="Write your comment here..." rows="3"
               class="comment-textarea">
@@ -1535,7 +1534,7 @@
 
           <p class="read-only-note" *ngIf="!canCommentOnTicket">
             <i class="fa-solid fa-circle-info"></i>
-            Only IT Services And Admin teams can add comments.
+            You can comment only on tickets assigned to you or that you raised.
           </p>
 
         </div>

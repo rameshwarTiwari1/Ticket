@@ -61,9 +61,14 @@ exports.addComment = async (req, res) => {
   }
 };
 
-// GET /tickets-generate/:id/comments
+// GET /tickets-generate/:id/comments — only for those who can view the ticket.
 exports.getComments = async (req, res) => {
   try {
+    const ticket = await Ticket.getTicketById(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    if (!access.canViewTicket(req.user, ticket)) {
+      return res.status(403).json({ message: 'You do not have access to this ticket' });
+    }
     const comments = await Comment.getCommentsByTicketId(req.params.id);
     res.status(200).json(comments);
   } catch (error) {

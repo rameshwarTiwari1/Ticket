@@ -121,8 +121,8 @@ export interface CreateUserPayload {
   password?: string;
   team_name: string;
   role?: string;   // admin/manager/employee/user — set by Admin
-  // location_name?: string | null;
-  // wing_name?: string | null;
+  location_name?: string | null;
+  wing_name?: string | null;
   org_name: string | null;  // ← NEW
 }
 

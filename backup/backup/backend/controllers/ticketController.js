@@ -263,14 +263,16 @@ exports.update = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Ticket not found' });
 
     // ── Permission + lifecycle enforcement (README §3, §4) ──────────────────────
-    const changingStatus = ['status_name'].some(
-      (f) => req.body[f] !== undefined && req.body[f] !== null && req.body[f] !== ''
-    );
+    // The edit form re-sends EVERY field (including disabled ones via getRawValue),
+    // so we only treat a field as "touched" when its value actually DIFFERS from
+    // the stored ticket — otherwise unchanged values would trip permission checks.
+    const normVal = (v) => (v === undefined || v === null) ? '' : String(v).trim().toLowerCase();
+    const fieldChanged = (f) => req.body[f] !== undefined && normVal(req.body[f]) !== normVal(existing[f]);
+
+    const changingStatus = fieldChanged('status_name');
     const MANAGE_FIELDS = ['subject', 'priority', 'team_name', 'type_name', 'issue_name',
                            'assigned_to_name', 'client_name', 'additional_email', 'email_id'];
-    const touchingManageFields = MANAGE_FIELDS.some(
-      (f) => req.body[f] !== undefined && req.body[f] !== null && req.body[f] !== ''
-    );
+    const touchingManageFields = MANAGE_FIELDS.some(fieldChanged);
 
     if (changingStatus) {
       // The owner (requester) may REOPEN their own resolved/closed ticket (README §4);
@@ -307,9 +309,14 @@ exports.update = async (req, res) => {
   }
 };
 
-// ─── DELETE ───────────────────────────────────────────────────────────────────
+// ─── DELETE — Admin, or the Manager of the ticket's team+location ─────────────
 exports.remove = async (req, res) => {
   try {
+    const existing = await Ticket.getTicketById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Ticket not found' });
+    if (!access.canAssignTicket(req.user, existing)) {
+      return res.status(403).json({ message: 'You are not allowed to delete this ticket' });
+    }
     const ticket = await Ticket.deleteTicket(req.params.id);
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
     res.status(200).json({ message: 'Ticket deleted successfully' });
