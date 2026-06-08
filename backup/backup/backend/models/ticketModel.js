@@ -4,10 +4,28 @@ const { resolveApprover, isApproverForLocation } = require('./approverModel');
 const { STATUS } = require('../constants/roles');
 const { ticketVisibilityScope } = require('../utils/access');
 
-// Resolve the team that should handle a ticket: the team mapped to the issue
-// category, but the instance of that team AT the ticket's location (README §7).
-// Falls back to the issue's mapped team directly, then to a provided team name.
+// Resolve the team that should handle a ticket (README §7), STRICTLY at the
+// ticket's own location (Option B — separate team per office). We resolve the
+// issue's mapped team BY NAME and require an instance of that team AT this
+// location. We deliberately do NOT fall back to a team at another office —
+// that would create a ticket whose location and team disagree (invisible to
+// every manager). If no matching team exists at this location, return null and
+// let the caller surface a clear "create the team at this office" error.
 const resolveTeamForIssueAtLocation = async (issue_id, location_id, fallbackTeamName) => {
+  if (!location_id) return null;
+
+  const teamAtLocation = async (teamName) => {
+    if (!teamName) return null;
+    const r = await db.query(
+      `SELECT team_id FROM t_teams
+       WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1)) AND location_id = $2
+       LIMIT 1`,
+      [teamName, location_id]
+    );
+    return r.rows[0]?.team_id ?? null;
+  };
+
+  // 1) Team mapped to the issue category — resolved at THIS location only.
   if (issue_id) {
     const mapped = await db.query(
       `SELECT te.team_name
@@ -15,33 +33,12 @@ const resolveTeamForIssueAtLocation = async (issue_id, location_id, fallbackTeam
        WHERE i.issue_id = $1`,
       [issue_id]
     );
-    const teamName = mapped.rows[0]?.team_name;
-    if (teamName && location_id) {
-      const atLoc = await db.query(
-        `SELECT team_id FROM t_teams
-         WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1)) AND location_id = $2
-         LIMIT 1`,
-        [teamName, location_id]
-      );
-      if (atLoc.rows[0]) return atLoc.rows[0].team_id;
-    }
-    // fall back to the issue's mapped team as-is
-    const direct = await db.query(
-      `SELECT mapped_team_id FROM t_issues WHERE issue_id = $1`, [issue_id]
-    );
-    if (direct.rows[0]?.mapped_team_id) return direct.rows[0].mapped_team_id;
+    const byIssue = await teamAtLocation(mapped.rows[0]?.team_name);
+    if (byIssue) return byIssue;
   }
-  // last resort: provided team name (optionally scoped to location)
-  if (fallbackTeamName) {
-    const byName = await db.query(
-      `SELECT team_id FROM t_teams
-       WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1))
-       ORDER BY (location_id = $2) DESC LIMIT 1`,
-      [fallbackTeamName, location_id]
-    );
-    if (byName.rows[0]) return byName.rows[0].team_id;
-  }
-  return null;
+
+  // 2) Explicit team name — also at THIS location only.
+  return await teamAtLocation(fallbackTeamName);
 };
 
 const generateTicketNumber = () => {
@@ -205,11 +202,20 @@ console.log(" wing_id received:", data.wing_id);
     approver_email = await resolveApprover(location_id, team_id);
   }
 
+  // Clear, actionable error when the office has no team to handle this issue
+  // (Option B: tickets never route to another office's team).
+  if (created_by && location_id && issue_id && !team_id) {
+    throw new Error(
+      'No team is set up at your location to handle this category. ' +
+      'Ask an admin to create the matching team at your location, or choose a different category.'
+    );
+  }
+
   const missing = [];
   if (!created_by) missing.push('created_by_name');
   if (!type_id)    missing.push('type_name');
   if (!issue_id)   missing.push('issue_name');
-  if (!team_id)    missing.push('team (no team mapped for this issue/location)');
+  if (!team_id)    missing.push('team (no team at this location for this issue)');
   if (!location_id) missing.push('location (creator has no location set)');
   if (!status_id)  missing.push("status ('Pending Approval' not seeded)");
 
