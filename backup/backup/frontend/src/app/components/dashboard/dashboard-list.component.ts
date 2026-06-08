@@ -35,6 +35,8 @@ import {
   LOCATION_CLIENT_MAP,
   ORG_ISSUE_MAP,
   STATUS_OPTIONS_G,
+  STATUS_TRANSITIONS,
+  STATUS_BUCKETS,
   HANSA_CEQUITY_ISSUES,
   HANSA_DIRECT_AUTOSENSE_ISSUES,
   ORGANIZATIONS,
@@ -304,24 +306,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     return false;
   }
 
-  /* Mirrors backend constants/roles.js TRANSITIONS — valid next status per current. */
-  private readonly STATUS_TRANSITIONS: { [k: string]: string[] } = {
-    'Pending Approval': ['Approved', 'Rejected'],
-    'Approved':         ['In Progress', 'Open'],
-    'Open':             ['In Progress', 'On Hold'],
-    'In Progress':      ['On Hold', 'Resolved'],
-    'On Hold':          ['In Progress', 'Resolved'],
-    'Resolved':         ['Closed', 'Reopened'],
-    'Reopened':         ['In Progress', 'On Hold'],
-    'Rejected':         [],
-    'Closed':           ['Reopened'],
-  };
-
   /* Status choices for the edit dropdown: the current status plus its valid next
-     states, so a user can't pick a transition the backend will reject (400). */
+     states (from the shared STATUS_TRANSITIONS that mirrors the backend), so a
+     user can't pick a transition the backend will reject (400). */
   allowedStatusOptions(): string[] {
     const current = this.editingTicket?.status_name || '';
-    const next = this.STATUS_TRANSITIONS[current] || [];
+    const next = STATUS_TRANSITIONS[current] || [];
     return [current, ...next].filter((s, i, arr) => !!s && arr.indexOf(s) === i);
   }
 
@@ -429,8 +419,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     const endOfWeek  = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     this.selectedRange = 'thisWeek';
-    this.startDate     = startOfWeek.toISOString().split('T')[0];
-    this.endDate       = endOfWeek.toISOString().split('T')[0];
+    this.startDate     = this.toLocalISODate(startOfWeek);
+    this.endDate       = this.toLocalISODate(endOfWeek);
 
     this.loadOrganizations();
     this.loadTeams();
@@ -630,7 +620,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   ============================================================ */
   loadClosedTickets(): void {
     const userId         = this.authService.getCurrentUserId() ?? 0;
-    const closedStatuses = ['closed', 'resolved', 'rejected'];
+    const closedStatuses = STATUS_BUCKETS.closed.map(s => s.toLowerCase());
     const selectedOrg    = this.dashboardOrganization.toLowerCase().trim();
     const locationId     = this.getCurrentUserLocationId();
 
@@ -1352,7 +1342,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   loadTeams(): void {
     this.teamService.getAllTeams().subscribe({
-      next: (data) => { this.teams = data; this.filteredTeams = [...data]; },
+      next: (data) => { this.teams = data; this.filteredTeams = [...data]; this.teamPage = 1; },
       error: () => { this.errorMessage = 'Failed to load teams'; },
     });
   }
@@ -1394,11 +1384,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     if (range === 'thisWeek') {
       const s = new Date(today); s.setDate(today.getDate() - today.getDay());
       const e = new Date(s); e.setDate(s.getDate() + 6);
-      this.startDate = s.toISOString().split('T')[0]; this.endDate = e.toISOString().split('T')[0];
+      this.startDate = this.toLocalISODate(s); this.endDate = this.toLocalISODate(e);
     } else {
       const s = new Date(today); s.setDate(today.getDate() - today.getDay() - 7);
       const e = new Date(s); e.setDate(s.getDate() + 6);
-      this.startDate = s.toISOString().split('T')[0]; this.endDate = e.toISOString().split('T')[0];
+      this.startDate = this.toLocalISODate(s); this.endDate = this.toLocalISODate(e);
     }
     this.applyAllFilters(); this.dropdownOpen = false;
   }
@@ -1445,7 +1435,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.applyOrganizationFilter();
     this.applyTabFilter();
     this.calculateCounts();
+    // Reset to page 1 on any filter change so the visible list isn't stuck on a
+    // now-out-of-range page (the live lists paginate via these configs).
     this.currentPage = 1;
+    this.dashboardPagination.page = 1;
+    this.ticketsPagination.page   = 1;
   }
 
   applyDateFilter(): void {
@@ -1453,12 +1447,23 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.selectedRange === 'allTime' || !this.startDate || !this.endDate) {
       this.dateFilteredTickets = [...this.tickets]; return;
     }
-    const start = new Date(this.startDate).getTime();
-    const end   = new Date(this.endDate + 'T23:59:59').getTime();
+    // Parse both bounds in LOCAL time (start-of-day .. end-of-day) so tickets
+    // aren't mis-bucketed by a UTC/local mismatch.
+    const start = new Date(this.startDate + 'T00:00:00').getTime();
+    const end   = new Date(this.endDate + 'T23:59:59.999').getTime();
     this.dateFilteredTickets = this.tickets.filter(t => {
       const c = new Date(t.created_at).getTime();
       return c >= start && c <= end;
     });
+  }
+
+  /* Format a Date as YYYY-MM-DD in LOCAL time (toISOString() would shift the day
+     in non-UTC zones, breaking This Week / Last Week boundaries). */
+  private toLocalISODate(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   /* applyOrganizationFilter
@@ -1482,9 +1487,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   applyTabFilter(): void {
     switch (this.activeTicketTab) {
-      case 'wip':    this.filteredTickets = this.dateFilteredTickets.filter(t => ['In Progress', 'On Hold'].includes(t.status_name)); break;
-      case 'open':   this.filteredTickets = this.dateFilteredTickets.filter(t => ['Open', 'Reopened', 'Pending Approval', 'Approved'].includes(t.status_name)); break;
-      case 'closed': this.filteredTickets = this.dateFilteredTickets.filter(t => ['Closed', 'Resolved', 'Rejected'].includes(t.status_name)); break;
+      case 'wip':    this.filteredTickets = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.wip.includes(t.status_name)); break;
+      case 'open':   this.filteredTickets = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.open.includes(t.status_name)); break;
+      case 'closed': this.filteredTickets = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.closed.includes(t.status_name)); break;
       default:       this.filteredTickets = [...this.dateFilteredTickets];
     }
     this.applySearchFilter();
@@ -1547,16 +1552,15 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   calculateCounts(): void {
-    const openish = ['Open', 'Reopened', 'Pending Approval', 'Approved'];
-    const wipish  = ['In Progress', 'On Hold'];
-    const closedish = ['Closed', 'Resolved', 'Rejected'];
+    // Buckets come from the shared STATUS_BUCKETS (mirrors backend) so the tabs
+    // and counts stay in sync with the lifecycle.
     this.totalRaised   = this.dateFilteredTickets.length;
     this.totalResolved = this.dateFilteredTickets.filter(t => t.status_name === 'Closed' || t.status_name === 'Resolved').length;
     this.totalPaused   = this.dateFilteredTickets.filter(t => t.status_name === 'On Hold').length;   // paused = On Hold
     this.allCount      = this.dateFilteredTickets.length;
-    this.wipCount      = this.dateFilteredTickets.filter(t => wipish.includes(t.status_name)).length;
-    this.openCount     = this.dateFilteredTickets.filter(t => openish.includes(t.status_name)).length;
-    this.closedCount   = this.dateFilteredTickets.filter(t => closedish.includes(t.status_name)).length;
+    this.wipCount      = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.wip.includes(t.status_name)).length;
+    this.openCount     = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.open.includes(t.status_name)).length;
+    this.closedCount   = this.dateFilteredTickets.filter(t => STATUS_BUCKETS.closed.includes(t.status_name)).length;
   }
 
   switchTicketTab(tab: 'all' | 'wip' | 'open' | 'closed'): void {
@@ -1661,7 +1665,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       this.tickets = [...this.allTickets];
       this.applyAllFilters();
 
-      const closedStatuses = ['closed', 'resolved', 'rejected'];
+      const closedStatuses = STATUS_BUCKETS.closed.map(s => s.toLowerCase());
       const selectedOrg    = org.toLowerCase().trim();
       this.closedTickets          = this.allTickets.filter(t =>
         closedStatuses.includes((t.status_name || '').toLowerCase()) &&

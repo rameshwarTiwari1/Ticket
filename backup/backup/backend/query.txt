@@ -1,0 +1,25 @@
+-- 1) The ticket: its location + the team it auto-routed to
+SELECT t.ticket_id, t.ticket_number, s.status_name,
+       t.location_id,  l.location_name        AS ticket_location,
+       t.assigned_team_id, te.team_name        AS routed_team,
+       te.location_id   AS routed_team_location
+FROM t_tickets t
+LEFT JOIN ticket_status s ON s.status_id = t.status_id
+LEFT JOIN t_locations  l  ON l.location_id = t.location_id
+LEFT JOIN t_teams      te ON te.team_id   = t.assigned_team_id
+ORDER BY t.created_at DESC
+LIMIT 5;
+
+-- 2) The manager: their role, location, and team row
+SELECT u.register_id, u.first_name, u.role,
+       u.location_id, l.location_name AS user_location,
+       u.team_id,     te.team_name    AS user_team, te.location_id AS team_location
+FROM t_user u
+LEFT JOIN t_locations l  ON l.location_id = u.location_id
+LEFT JOIN t_teams     te ON te.team_id    = u.team_id
+WHERE u.email_id = 'manager@yourco.com';
+
+-- 3) Do IT Services / OPS teams exist per location?
+SELECT t.team_id, t.team_name, t.location_id, l.location_name
+FROM t_teams t LEFT JOIN t_locations l ON l.location_id = t.location_id
+ORDER BY l.location_name, t.team_name;

@@ -25,15 +25,22 @@ export class AuthInterceptor implements HttpInterceptor {
 
     return next.handle(authRequest).pipe(
       catchError((error: HttpErrorResponse) => {
-        if (error.status === 401) {
+        // Only force a logout/redirect for an EXPIRED session on a protected call —
+        // not for 401s from the public auth endpoints (login / OTP / reset), whose
+        // own components handle the error (wrong password, bad OTP, etc.).
+        if (error.status === 401 && token && !this.isAuthEndpoint(authRequest.url)) {
           this.authService.logout();
           this.router.navigate(['/login']);
         }
         if (error.status === 403) {
-          console.warn('403 Forbidden – token invalid or insufficient permissions');
+          console.warn('403 Forbidden – insufficient permissions');
         }
         return throwError(() => error);
       })
     );
+  }
+
+  private isAuthEndpoint(url: string): boolean {
+    return /\/users\/login|\/auth\/|\/otp\//.test(url);
   }
 }

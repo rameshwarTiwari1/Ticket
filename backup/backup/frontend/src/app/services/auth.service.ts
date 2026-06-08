@@ -38,6 +38,7 @@ export class AuthService {
   //add below methods to help the track activity
   startActivityWatcher(): void {
   if (!this.isBrowser()) return;
+  this.stopActivityWatcher();   // ensure we never stack duplicate listeners/timers
   this.ACTIVITY_EVENTS.forEach(event =>
     window.addEventListener(event, this.boundReset, { passive: true })
   );

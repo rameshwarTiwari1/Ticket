@@ -20,6 +20,9 @@ export class RegistrationComponent implements OnInit {
   form: FormGroup;
   otpSent     = false;
   otpVerified = false;
+  isSendingOtp   = false;
+  isVerifyingOtp = false;
+  isSubmitting   = false;
 
   teams:         Team[]         = [];
   locations:     Location[]     = [];
@@ -56,6 +59,17 @@ export class RegistrationComponent implements OnInit {
   ngOnInit(): void {
     this.loadTeams();
     this.loadOrganizations();
+
+    // If the email is changed after an OTP was sent/verified, invalidate it —
+    // the OTP belongs to the previous address.
+    this.form.get('email')?.valueChanges.subscribe(() => {
+      if (this.otpSent || this.otpVerified) {
+        this.otpSent = false;
+        this.otpVerified = false;
+        this.form.get('otp')?.reset();
+        this.form.get('password')?.disable();
+      }
+    });
   }
 
   loadTeams(): void {
@@ -93,16 +107,12 @@ export class RegistrationComponent implements OnInit {
   sendOtp(): void {
     const emailControl = this.form.get('email');
     if (!emailControl?.valid) { alert('Enter a valid email first'); return; }
-    if (this.otpSent && !this.otpVerified) { alert('OTP already sent. Check your email.'); return; }
+    if (this.isSendingOtp) return;   // prevent double-send
 
-    this.otpSent = true;
-
+    this.isSendingOtp = true;
     this.service.sendOtp(emailControl.value).subscribe({
-      next: () => { alert('OTP sent to your email'); },
-      error: () => {
-        this.otpSent = false;
-        alert('Failed to send OTP. Please try again.');
-      },
+      next: () => { this.otpSent = true; this.isSendingOtp = false; alert('OTP sent to your email'); },
+      error: () => { this.isSendingOtp = false; alert('Failed to send OTP. Please try again.'); },
     });
   }
 
@@ -110,20 +120,25 @@ export class RegistrationComponent implements OnInit {
     const email = this.form.value.email;
     const otp   = this.form.value.otp;
     if (!otp) { alert('Enter OTP first'); return; }
+    if (this.isVerifyingOtp) return;
 
+    this.isVerifyingOtp = true;
     this.service.verifyOtp(email, otp).subscribe({
       next: () => {
         this.otpVerified = true;
         this.form.get('password')?.enable();
+        this.isVerifyingOtp = false;
         alert('OTP Verified successfully');
       },
-      error: () => { alert('Invalid or expired OTP'); },
+      error: () => { this.isVerifyingOtp = false; alert('Invalid or expired OTP'); },
     });
   }
 
 submit(): void {
   if (!this.otpVerified) { alert('Please verify OTP first'); return; }
   if (this.form.invalid)  { this.form.markAllAsTouched(); alert('Please fill all required fields'); return; }
+  if (this.isSubmitting) return;   // prevent double-submit
+  this.isSubmitting = true;
 
   const raw = this.form.getRawValue();
   const selectedTeam = this.teams.find(t => String(t.team_id) === String(raw.teamId));
@@ -143,10 +158,12 @@ submit(): void {
 
   this.service.registerUser(payload).subscribe({
     next: () => {
+      this.isSubmitting = false;
       alert('Registered successfully! Please login.');
       setTimeout(() => this.router.navigateByUrl('/login'), 500);
     },
     error: (err) => {
+      this.isSubmitting = false;
       alert(err.error?.message || 'Registration failed. Please try again.');
     },
   });

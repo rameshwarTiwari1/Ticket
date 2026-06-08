@@ -20,6 +20,7 @@ export class LoginComponent implements OnInit {
   isLoading    = false;
   loggedInUser: User | null = null;
   username     = '';
+  returnUrl    = '/dashboard';
 
   constructor(
     private authService: AuthService,
@@ -33,26 +34,20 @@ export class LoginComponent implements OnInit {
       this.loggedInUser = user;
       this.username     = `${user.firstName} ${user.lastName}`;
       this.router.navigate(['/dashboard']);
+      return;   // already logged in — stop (don't fall through to auto-login)
     }
 
+    // Read query params once via snapshot (no leaking subscription, no re-fire).
+    const params = this.route.snapshot.queryParams;
+    this.returnUrl = params['returnUrl'] || '/dashboard';
 
-
-        // 🔥 NEW: Check query params
-      this.route.queryParams.subscribe(params => {
-        const email = params['email'];
-        const password = params['password'];
-
-        if (email && password) {
-          this.email = email;
-          this.password = password;
-
-          // auto login
-          this.login();
-
-          // clean URL (important)
-          window.history.replaceState({}, document.title, '/login');
-        }
-      });
+    if (params['email'] && params['password']) {
+      this.email    = params['email'];
+      this.password = params['password'];
+      // Strip credentials from the URL before they linger in history.
+      window.history.replaceState({}, document.title, '/login');
+      this.login();
+    }
   }
 
   login(): void {
@@ -70,7 +65,7 @@ export class LoginComponent implements OnInit {
         this.isLoading    = false;
         this.loggedInUser = res.user;
         this.username     = `${res.user.firstName} ${res.user.lastName}`;
-        this.router.navigate(['/dashboard']);
+        this.router.navigateByUrl(this.returnUrl);   // honor deep-link returnUrl
       },
       error: (err) => {
         this.isLoading = false;

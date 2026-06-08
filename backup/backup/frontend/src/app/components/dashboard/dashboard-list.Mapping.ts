@@ -82,7 +82,35 @@
 // // All valid organizations shown in the dropdown
 // export const ORGANIZATIONS: string[] = ['HANSA CEQUITY', 'HANSA DIRECT', 'AUTOSENSE'];
 
-export const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved', 'Reopened', 'Closed'];
+// ─── TICKET STATUS — single source of truth, MIRRORS backend constants/roles.js ──
+// Keep these in sync with backend/constants/roles.js (STATUS + TRANSITIONS).
+export const TICKET_STATUSES = [
+  'Pending Approval', 'Approved', 'Rejected',
+  'Open', 'In Progress', 'On Hold',
+  'Resolved', 'Closed', 'Reopened',
+];
+
+// Allowed next statuses per current status (lifecycle). Mirrors backend TRANSITIONS.
+export const STATUS_TRANSITIONS: { [k: string]: string[] } = {
+  'Pending Approval': ['Approved', 'Rejected'],
+  'Approved':         ['In Progress', 'Open'],
+  'Open':             ['In Progress', 'On Hold'],
+  'In Progress':      ['On Hold', 'Resolved'],
+  'On Hold':          ['In Progress', 'Resolved'],
+  'Resolved':         ['Closed', 'Reopened'],
+  'Reopened':         ['In Progress', 'On Hold'],
+  'Rejected':         [],
+  'Closed':           ['Reopened'],
+};
+
+// Dashboard tab/count buckets — every status belongs to exactly one bucket.
+export const STATUS_BUCKETS: { open: string[]; wip: string[]; closed: string[] } = {
+  open:   ['Open', 'Reopened', 'Pending Approval', 'Approved'],
+  wip:    ['In Progress', 'On Hold'],
+  closed: ['Closed', 'Resolved', 'Rejected'],
+};
+
+export const STATUS_OPTIONS = TICKET_STATUSES;
 
 export const STATUS_OPTIONS_G = ['Open'];
 
