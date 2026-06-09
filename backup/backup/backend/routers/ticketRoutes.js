@@ -41,6 +41,10 @@ router.post('/',
 // MUST be before /:id so Express doesn't treat 'assigned-team' as a ticket ID
 router.get('/assigned-team/:teamName', ctrl.getTicketsByAssignedTeam);
  
+// ─── SELF-ASSIGN (employee) & RATING (owner) — before /:id ───────────────────
+router.post('/:id/self-assign', ctrl.selfAssign);
+router.post('/:id/rating',      ctrl.rateTicket);
+
 // ─── COMMENTS ────────────────────────────────────────────────────────────────
 router.get('/:id/comments',  commentCtrl.getComments);
 router.post('/:id/comments', commentCtrl.addComment);

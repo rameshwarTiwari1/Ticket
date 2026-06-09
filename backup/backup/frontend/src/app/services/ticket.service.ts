@@ -179,6 +179,20 @@ export class TicketService {
     );
   }
 
+  // ── SELF-ASSIGN (employee takes an unassigned ticket of their team) ─────────
+  selfAssign(ticketId: number): Observable<any> {
+    return this.http.post(`${this.api}/${ticketId}/self-assign`, {}, { headers: this.getAuthHeaders() }).pipe(
+      catchError(err => throwError(() => new Error(err.error?.message || 'Failed to self-assign')))
+    );
+  }
+
+  // ── RATE TICKET (owner, after resolved/closed) ──────────────────────────────
+  rateTicket(ticketId: number, rating: number, experience: string): Observable<any> {
+    return this.http.post(`${this.api}/${ticketId}/rating`, { rating, experience }, { headers: this.getAuthHeaders() }).pipe(
+      catchError(err => throwError(() => new Error(err.error?.message || 'Failed to submit rating')))
+    );
+  }
+
   // ── SEARCH ────────────────────────────────────────────────────────────────
   setSearchTerm(term: string): void {
     this.searchSubject.next(term);

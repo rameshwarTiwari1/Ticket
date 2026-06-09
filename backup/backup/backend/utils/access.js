@@ -37,22 +37,31 @@ function ticketVisibilityScope(user, opts = {}) {
     return { clause: 'TRUE', values };
   }
 
-  // MANAGER: tickets at THEIR location AND THEIR team only (never other locations).
-  // Org-switch is view-only and does not widen beyond their own location/team,
-  // so we ignore opts.org_id widening for managers.
+  // MANAGER: tickets for THEIR org + location + team only (notes §3) — never
+  // another org, location, or team. (So a DBA manager sees only DBA tickets at
+  // their office/org; an IT Services manager never sees DBA tickets.)
   if (isManager(user)) {
     const loc  = next(user.location_id);
     const team = next(user.team_id);
+    const org  = next(user.org_id);
     return {
-      clause: `t.location_id = ${loc} AND t.assigned_team_id = ${team}`,
+      clause: `t.location_id = ${loc} AND t.assigned_team_id = ${team} AND t.org_id = ${org}`,
       values,
     };
   }
 
-  // EMPLOYEE: only tickets assigned to them.
+  // EMPLOYEE: tickets assigned to them, PLUS the unassigned pool of their own
+  // org+location+team (so they can self-assign — notes Phase-1 #2).
   if (isEmployee(user)) {
-    const uid = next(user.userId);
-    return { clause: `t.assigned_to = ${uid}`, values };
+    const uid  = next(user.userId);
+    const team = next(user.team_id);
+    const loc  = next(user.location_id);
+    const org  = next(user.org_id);
+    return {
+      clause: `(t.assigned_to = ${uid} OR (t.assigned_to IS NULL ` +
+              `AND t.assigned_team_id = ${team} AND t.location_id = ${loc} AND t.org_id = ${org}))`,
+      values,
+    };
   }
 
   // USER (requester): only tickets they created.
@@ -65,30 +74,49 @@ function ticketVisibilityScope(user, opts = {}) {
  * ticket row uses the model's aliased columns (org_id, location_id,
  * assigned_team_id is exposed as team via joins — we check raw ids passed in).
  */
+// Manager scope helper — same org + location + team as the ticket.
+function managerOwnsTicket(user, ticket) {
+  return Number(ticket.org_id) === Number(user.org_id)
+      && Number(ticket.location_id) === Number(user.location_id)
+      && Number(ticket.assigned_team_id) === Number(user.team_id);
+}
+
 function canViewTicket(user, ticket) {
   if (!ticket) return false;
   if (isAdmin(user)) return true;
-  if (isManager(user)) {
-    return Number(ticket.location_id) === Number(user.location_id)
-        && Number(ticket.assigned_team_id) === Number(user.team_id);
+  if (isManager(user)) return managerOwnsTicket(user, ticket);
+  if (isEmployee(user)) {
+    const assignee = ticket.assigned_to_id ?? ticket.assigned_to;
+    if (Number(assignee) === Number(user.userId)) return true;
+    // unassigned pool of their own org+location+team (for self-assign)
+    return !assignee
+        && Number(ticket.assigned_team_id) === Number(user.team_id)
+        && Number(ticket.location_id) === Number(user.location_id)
+        && Number(ticket.org_id) === Number(user.org_id);
   }
-  if (isEmployee(user)) return Number(ticket.assigned_to_id ?? ticket.assigned_to) === Number(user.userId);
   return Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId);
 }
 
 /** Whether `user` may ASSIGN/REASSIGN this ticket. */
 function canAssignTicket(user, ticket) {
   if (isAdmin(user)) return true;
-  if (isManager(user)) {
-    return Number(ticket.location_id) === Number(user.location_id)
-        && Number(ticket.assigned_team_id) === Number(user.team_id);
-  }
-  return false; // employees & users never reassign
+  if (isManager(user)) return managerOwnsTicket(user, ticket);
+  return false; // employees & users never reassign (see canSelfAssign for self-assign)
 }
 
 /** Whether `user` may EDIT ticket details (not just status). */
 function canEditTicket(user, ticket) {
   return canAssignTicket(user, ticket);
+}
+
+/** Whether an EMPLOYEE may self-assign an UNASSIGNED ticket of their own
+ *  org + location + team (notes Phase-1 #2). */
+function canSelfAssign(user, ticket) {
+  if (!isEmployee(user)) return false;
+  if (ticket.assigned_to_id ?? ticket.assigned_to) return false; // already taken
+  return Number(ticket.org_id) === Number(user.org_id)
+      && Number(ticket.location_id) === Number(user.location_id)
+      && Number(ticket.assigned_team_id) === Number(user.team_id);
 }
 
 /** Whether `user` may change ticket STATUS / add work notes. */
@@ -103,5 +131,5 @@ module.exports = {
   isAdmin, isManager, isEmployee, isUser,
   canManage, canAdministrate,
   ticketVisibilityScope,
-  canViewTicket, canAssignTicket, canEditTicket, canWorkTicket,
+  canViewTicket, canAssignTicket, canEditTicket, canWorkTicket, canSelfAssign,
 };

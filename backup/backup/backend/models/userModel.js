@@ -446,7 +446,8 @@ const updateUser = async (id, {
             mobile_number = $3, email_id      = $4,
             password_hash = $5, team_id       = $6,
             location_id   = $7, wing_id       = $8,
-            org_id        = $9, role          = COALESCE($10, role)
+            org_id        = $9, role          = COALESCE($10, role),
+            updated_at    = CURRENT_TIMESTAMP
         WHERE register_id = $11
         ${returningClause}
       `;
@@ -462,7 +463,8 @@ const updateUser = async (id, {
             mobile_number = $3, email_id      = $4,
             team_id       = $5, location_id   = $6,
             wing_id       = $7, org_id        = $8,
-            role          = COALESCE($9, role)
+            role          = COALESCE($9, role),
+            updated_at    = CURRENT_TIMESTAMP
         WHERE register_id = $10
         ${returningClause}
       `;
@@ -556,7 +558,7 @@ const deleteUser = async (userId, newUserId) => {
 // Admin promotes/sets a user's role (admin | manager | employee | user).
 const setUserRole = async (userId, role) => {
   const { rows } = await db.query(
-    `UPDATE T_USER SET role = $1 WHERE register_id = $2
+    `UPDATE T_USER SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE register_id = $2
      RETURNING register_id, role`,
     [role, userId]
   );

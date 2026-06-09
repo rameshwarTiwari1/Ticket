@@ -9,6 +9,7 @@ const { createNotification } = require('../utils/notification');
 const access = require('../utils/access');
 const { canTransition, STATUS } = require('../constants/roles');
 const { checkSlaBreaches } = require('../utils/slaChecker');
+const activity = require('../utils/activityLog');
 
 // ─── SLA CHECK (Admin) — also runs automatically on an interval ───────────────
 exports.runSlaCheck = async (req, res) => {
@@ -61,10 +62,17 @@ exports.create = async (req, res) => {
 
     await sendTicketCreatedMail(ticket, creatorEmail, orgName);
 
+    activity.logReq(req, 'TICKET_CREATED', {
+      ticket_id: ticket.ticket_id,
+      description: `Created ticket ${ticket.ticket_number} — ${ticket.subject}`,
+    });
+
     res.status(201).json({ message: 'Ticket created successfully', ticket });
   } catch (error) {
     console.error('CREATE TICKET ERROR:', error.message);
-    res.status(500).json({ message: error.message });
+    // Validation errors (no team mapping, missing fields) carry a 400 status +
+    // code so the UI can show a professional message instead of a generic 500.
+    res.status(error.status || 500).json({ message: error.message, code: error.code || 'SERVER_ERROR' });
   }
 };
 
@@ -302,9 +310,65 @@ exports.update = async (req, res) => {
     const ticket = await Ticket.updateTicket(req.params.id, updateData);
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
 
+    if (changingStatus) {
+      activity.logReq(req, 'TICKET_STATUS', {
+        ticket_id: Number(req.params.id),
+        old_value: existing.status_name,
+        new_value: req.body.status_name,
+        description: `Status: ${existing.status_name} → ${req.body.status_name}`,
+      });
+    }
+
     res.status(200).json({ message: 'Ticket updated successfully', ticket });
   } catch (error) {
     console.error('UPDATE TICKET ERROR:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── SELF-ASSIGN (Employee takes an unassigned ticket of their team) ──────────
+exports.selfAssign = async (req, res) => {
+  try {
+    const existing = await Ticket.getTicketById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Ticket not found' });
+    if (!access.canSelfAssign(req.user, existing)) {
+      return res.status(403).json({ message: 'You can only self-assign an unassigned ticket in your team and location' });
+    }
+    if (existing.approval_status !== 'approved') {
+      return res.status(400).json({ message: 'This ticket must be approved before it can be picked up', code: 'NOT_APPROVED' });
+    }
+    const result = await Ticket.assignTicket({ ticket_id: req.params.id, assigned_to: req.user.userId });
+    activity.logReq(req, 'TICKET_ASSIGNED', {
+      ticket_id: Number(req.params.id),
+      new_value: 'self',
+      description: `Self-assigned ${existing.ticket_number}`,
+    });
+    res.status(200).json({ message: 'Ticket assigned to you', result });
+  } catch (error) {
+    console.error('SELF-ASSIGN ERROR:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── RATE TICKET (owner, after resolved/closed) ───────────────────────────────
+exports.rateTicket = async (req, res) => {
+  try {
+    const rating = Number(req.body.rating);
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5', code: 'VALIDATION' });
+    }
+    const existing = await Ticket.getTicketById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Ticket not found' });
+    if (Number(existing.created_by_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ message: 'Only the ticket owner can rate this ticket' });
+    }
+    if (!['resolved', 'closed'].includes((existing.status_name || '').toLowerCase())) {
+      return res.status(400).json({ message: 'You can rate a ticket only after it is resolved or closed', code: 'NOT_RESOLVED' });
+    }
+    const updated = await Ticket.rateTicket(req.params.id, rating, req.body.experience);
+    res.status(200).json({ message: 'Thanks for your feedback', ...updated });
+  } catch (error) {
+    console.error('RATE TICKET ERROR:', error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -380,6 +444,12 @@ await createNotification(
     const creatorEmail  = creatorRow.rows[0]?.email_id || null;
     const updatedTicket = await Ticket.getTicketById(req.body.ticket_id);
     await sendTicketAssignedMail(updatedTicket, result.assignee_email, creatorEmail);
+
+    activity.logReq(req, 'TICKET_ASSIGNED', {
+      ticket_id: Number(req.body.ticket_id),
+      new_value: result.assignee_name || String(req.body.assigned_to),
+      description: `Assigned ${existing.ticket_number} to ${result.assignee_name || req.body.assigned_to}`,
+    });
 
     res.status(200).json({ message: 'Ticket assigned successfully', result });
   } catch (error) {

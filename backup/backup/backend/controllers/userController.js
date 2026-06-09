@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt    = require('jsonwebtoken');
 const db     = require('../config/db');
+const activity = require('../utils/activityLog');
 const {
   findUserByEmail,
   findUserById,
@@ -84,6 +85,15 @@ const login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '5h' }
     );
+
+    activity.log({
+      user_id: user.register_id,
+      user_name: `${user.first_name} ${user.last_name}`,
+      org_id: user.org_id,
+      activity_type: 'LOGIN',
+      ip_address: activity.clientIp(req),
+      description: `Login: ${user.email_id}`,
+    });
 
     res.status(200).json({ message: 'Login successful', user: formatUser(user), token });
   } catch (err) {
@@ -266,6 +276,10 @@ const setRoleController = async (req, res) => {
 
     const updated = await setUserRole(req.params.id, role.toLowerCase());
     if (!updated) return res.status(404).json({ message: 'User not found' });
+    activity.logReq(req, 'ROLE_CHANGED', {
+      new_value: role.toLowerCase(),
+      description: `Set role of user #${req.params.id} to ${role.toLowerCase()}`,
+    });
     res.status(200).json({ message: `Role updated to ${role}`, user: updated });
   } catch (err) {
     res.status(500).json({ message: err.message });

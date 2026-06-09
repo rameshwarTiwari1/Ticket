@@ -46,6 +46,9 @@ import { environment } from '../../environments/environment';
 import { CommentService } from '../../services/comment.service';
 import { TicketComment, Approver } from '../../models/Models';
 import { ApproverService } from '../../services/approver.service';
+import { ToastService } from '../../services/toast.service';
+import { ActivityService, ActivityLog } from '../../services/activity.service';
+import { ApproverManagementComponent } from '../approver/approver-management.component';
 
 export enum SidebarTab {
   Dashboard   = 'dashboard',
@@ -66,7 +69,7 @@ interface PaginationConfig {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterModule, ReactiveFormsModule, FormsModule],
+  imports: [CommonModule, RouterModule, ReactiveFormsModule, FormsModule, ApproverManagementComponent],
   templateUrl: './dashboard-list.component.html',
   styleUrls: ['./dashboard-list.component.css'],
 })
@@ -136,7 +139,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   airoliWings: string[] = ['A', 'B', 'C', 'D'];
 
   /* ---------------- DATE FILTER STATE ---------------- */
-  selectedRange: 'thisWeek' | 'lastWeek' | 'allTime' | 'custom' = 'thisWeek';
+  selectedRange: 'thisWeek' | 'lastWeek' | 'allTime' | 'custom' | 'currentMonth' | 'lastMonth' | 'halfYearly' | 'yearly' = 'thisWeek';
   startDate        = '';
   endDate          = '';
   customStartDate  = '';
@@ -145,7 +148,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   customDateError  = '';
 
   /* ---------------- UI STATE ---------------- */
-  activeSidebarTab: 'dashboard' | 'viewTickets' | 'closedTickets' | 'users' | 'teams' | 'newTicket' = 'dashboard';
+  activeSidebarTab: 'dashboard' | 'viewTickets' | 'closedTickets' | 'users' | 'teams' | 'newTicket' | 'approvers' | 'logs' = 'dashboard';
+  activityLogs: ActivityLog[] = [];
   dashboardView:    'cards' | 'list' = 'cards';
   ticketsView:      'cards' | 'list' = 'cards';
   closedTicketsView:'cards' | 'list' = 'cards';
@@ -260,6 +264,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     private organizationService: OrganizationService,
     private commentService: CommentService,
     private approverService: ApproverService,
+    private activityService: ActivityService,
+    private toast: ToastService,
     private ChangeDetectorRef: ChangeDetectorRef,
   ) {}
 
@@ -472,7 +478,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   /* ============================================================
      SIDEBAR TAB
   ============================================================ */
-  setSidebarTab(tab: 'dashboard' | 'viewTickets' | 'closedTickets' | 'newTicket' | 'users' | 'teams'): void {
+  setSidebarTab(tab: 'dashboard' | 'viewTickets' | 'closedTickets' | 'newTicket' | 'users' | 'teams' | 'approvers' | 'logs'): void {
     this.activeSidebarTab  = tab;
     this.selectedTicket    = null;
     this.showNewTicketForm = false;
@@ -493,9 +499,18 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     if (tab === 'dashboard') { this.showCustomDatePicker = false; this.applyAllFilters(); }
     if (tab === 'users')  { this.loadAllUsers(); if (this.allUsers.length > 0) { this.applyUserOrgFilter(); } }
     if (tab === 'teams')  { this.loadTeams(); }
+    if (tab === 'logs')   { this.loadLogs(); }
   }
 
   openUserTab():   void { this.setSidebarTab('users'); }
+
+  /* C2: activity logs (admin/manager). */
+  loadLogs(): void {
+    this.activityService.list().subscribe({
+      next: (rows) => { this.activityLogs = rows || []; this.ChangeDetectorRef.detectChanges(); },
+      error: () => { this.activityLogs = []; },
+    });
+  }
   openTicketTab(): void { this.setSidebarTab('viewTickets'); }
 
   openAssignModal(ticket: MyTicket): void {
@@ -504,7 +519,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // A ticket can only be assigned once it has been approved (README §6).
     if ((ticket as any).approval_status !== 'approved') {
-      alert('This ticket must be approved before it can be assigned.');
+      this.toast.warning('This ticket must be approved before it can be assigned.');
       return;
     }
 
@@ -516,7 +531,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         (ticket as any).location_id ??
         null;
       if (userLocId && ticketLocId && ticketLocId !== userLocId) {
-        alert('You can only assign tickets from your own location.');
+        this.toast.warning('You can only assign tickets from your own location.');
         return;
       }
     }
@@ -563,18 +578,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
                 '| isITService:', this.isITService, '| isSiteManager:', this.isSiteManager,
                 '| locationId:', locationId);
 
-    // Branch by ROLE (not team). The backend scopes every endpoint, so we just
-    // call the right one for the role.
-    if (this.isAdmin) {
-      request$ = this.ticketService.getAll();                       // all orgs/locations
-    } else if (this.isSiteManager) {
-      request$ = locationId
-        ? this.ticketService.getTicketsByLocation(locationId)       // own team+location (server-scoped)
-        : this.ticketService.getAll();
-    } else {
-      // Employee / User → only their own (assigned or created)
-      request$ = this.ticketService.getMyTickets(this.userId);
-    }
+    // The backend scopes GET / by role (admin=all, manager=org+team+location,
+    // employee=assigned + unassigned team pool, user=created). So one call works
+    // for everyone and the employee self-assign pool is included.
+    request$ = this.ticketService.getAll();
 
     request$.subscribe({
       next: (tickets: MyTicket[]) => {
@@ -654,18 +661,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    let request$: Observable<MyTicket[]>;
-
-    // Branch by ROLE, matching loadTickets().
-    if (this.isAdmin) {
-      request$ = this.ticketService.getAll();
-    } else if (this.isSiteManager) {
-      request$ = locationId
-        ? this.ticketService.getTicketsByLocation(locationId)
-        : this.ticketService.getAll();
-    } else {
-      request$ = this.ticketService.getMyTickets(userId);
-    }
+    // Server-scoped by role (same as loadTickets).
+    const request$: Observable<MyTicket[]> = this.ticketService.getAll();
 
     request$.subscribe({
       next: (tickets: MyTicket[]) => {
@@ -929,12 +926,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
           else    { this.userToDeleteId = null; this.userToDeleteName = ''; }
         }
       },
-      error: () => { alert('Failed to check user tickets. Please try again.'); this.userToDeleteId = null; this.userToDeleteName = ''; },
+      error: () => { this.toast.error('Failed to check user tickets. Please try again.'); this.userToDeleteId = null; this.userToDeleteName = ''; },
     });
   }
 
   confirmReassignAndDelete(): void {
-    if (!this.selectedReassignUserId) { alert('Please select a user to reassign the tickets to.'); return; }
+    if (!this.selectedReassignUserId) { this.toast.warning('Please select a user to reassign the tickets to.'); return; }
     if (!this.userToDeleteId) return;
     const reassignUser = this.allUsers.find((u) => u.id === this.selectedReassignUserId);
     if (!reassignUser) return;
@@ -944,21 +941,21 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.userService.reassignTickets(this.userToDeleteId, this.selectedReassignUserId).subscribe({
       next: () => {
         this.userService.deleteUser(this.userToDeleteId!, undefined).subscribe({
-          next: () => { alert(`Tickets reassigned and user "${this.userToDeleteName}" deleted successfully.`); this.showReassignModal = false; this.closeReassignModal(); this.loadAllUsers(); this.isDeleting = false; },
-          error: (err) => { alert(err.error?.message || 'Tickets reassigned but failed to delete user.'); this.isDeleting = false; this.loadAllUsers(); },
+          next: () => { this.toast.success(`Tickets reassigned and user "${this.userToDeleteName}" deleted.`); this.showReassignModal = false; this.closeReassignModal(); this.loadAllUsers(); this.isDeleting = false; },
+          error: (err) => { this.toast.error(err.error?.message || 'Tickets reassigned but failed to delete user.'); this.isDeleting = false; this.loadAllUsers(); },
         });
       },
-      error: (err) => { alert(err.error?.message || 'Failed to reassign tickets. Please try again.'); this.isDeleting = false; },
+      error: (err) => { this.toast.error(err.error?.message || 'Failed to reassign tickets. Please try again.'); this.isDeleting = false; },
     });
   }
 
   private finalDeleteUser(id: number, userName: string): void {
     this.isDeleting = true;
     this.userService.deleteUser(id, undefined).subscribe({
-      next: () => { alert(`User "${userName}" deleted successfully.`); this.loadAllUsers(); this.isDeleting = false; },
+      next: () => { this.toast.success(`User "${userName}" deleted successfully.`); this.loadAllUsers(); this.isDeleting = false; },
       error: (err) => {
         if (err.status === 400 && err.error?.requiresReassign) { this.pendingTicketCount = err.error.pendingCount || 0; this.showReassignModal = true; this.isDeleting = false; return; }
-        alert(err.error?.message || 'Failed to delete user.'); this.isDeleting = false;
+        this.toast.error(err.error?.message || 'Failed to delete user.'); this.isDeleting = false;
       },
     });
   }
@@ -1062,13 +1059,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.creatingTicket = true;
     if (this.editingTicket) {
       this.ticketService.update(this.editingTicket.ticket_id, payload).subscribe({
-        next: () => { this.creatingTicket = false; alert('Ticket updated successfully!'); this.closeNewTicketForm(); this.loadTickets(); },
-        error: (err) => { this.creatingTicket = false; this.errorMessage = err.message || 'Failed to update ticket.'; },
+        next: () => { this.creatingTicket = false; this.toast.success('Ticket updated successfully!'); this.closeNewTicketForm(); this.loadTickets(); },
+        error: (err) => { this.creatingTicket = false; const m = err.message || 'Failed to update ticket.'; this.errorMessage = m; this.toast.error(m); },
       });
     } else {
       this.ticketService.create(payload).subscribe({
-        next: () => { this.creatingTicket = false; alert('Ticket created successfully!'); this.closeNewTicketForm(); this.loadTickets(); },
-        error: (err) => { this.creatingTicket = false; this.errorMessage = err.message || 'Failed to create ticket.'; },
+        next: () => { this.creatingTicket = false; this.toast.success('Ticket created successfully!'); this.closeNewTicketForm(); this.loadTickets(); },
+        error: (err) => { this.creatingTicket = false; const m = err.message || 'Failed to create ticket.'; this.errorMessage = m; this.toast.error(m); },
       });
     }
   }
@@ -1085,7 +1082,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         (ticket as any).location_id ??
         null;
       if (userLocId && ticketLocId && ticketLocId !== userLocId) {
-        alert('You can only edit tickets from your own location.');
+        this.toast.warning('You can only edit tickets from your own location.');
         return;
       }
     }
@@ -1220,12 +1217,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!confirm('Reopen this ticket?')) return;
     this.ticketService.update(this.selectedTicket.ticket_id, { status_name: 'Reopened' } as any).subscribe({
       next: () => {
-        alert('Ticket reopened.');
+        this.toast.success('Ticket reopened.');
         this.selectedTicket.status_name = 'Reopened';
         this.loadTickets();
         this.ChangeDetectorRef.detectChanges();
       },
-      error: (err) => { alert(err.message || 'Failed to reopen ticket'); },
+      error: (err) => { this.toast.error(err.message || 'Failed to reopen ticket'); },
     });
   }
 
@@ -1303,7 +1300,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   submitAssign(): void {
-    if (this.assignForm.invalid || !this.selectedAssignTicket) { this.assignForm.markAllAsTouched(); alert('Please fill all required fields'); return; }
+    if (this.assignForm.invalid || !this.selectedAssignTicket) { this.assignForm.markAllAsTouched(); this.toast.warning('Please fill all required fields'); return; }
     const payload = {
       // org_id/location_id are immutable — do NOT send org_name on assign.
       ticket_id:          this.selectedAssignTicket.ticket_id,
@@ -1312,12 +1309,47 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       remark:             this.assignForm.value.remark || '',
     };
     this.ticketService.assignTicket(payload).subscribe({
-      next: () => { alert('Ticket Assigned Successfully'); this.showAssignModal = false; this.selectedAssignTicket = null; this.assignForm.reset(); this.loadTickets(); },
-      error: (err) => { alert(err.message || 'Failed to assign ticket'); },
+      next: () => { this.toast.success('Ticket assigned successfully'); this.showAssignModal = false; this.selectedAssignTicket = null; this.assignForm.reset(); this.loadTickets(); },
+      error: (err) => { this.toast.error(err.message || 'Failed to assign ticket'); },
     });
   }
 
   closeAssignModal(): void { this.showAssignModal = false; this.selectedAssignTicket = null; }
+
+  /* ── B2: employee self-assign an unassigned ticket from their team pool ── */
+  canSelfAssignRow(ticket: MyTicket): boolean {
+    return this.isEmployee
+      && !(ticket as any).assigned_to_id
+      && (ticket as any).approval_status === 'approved';
+  }
+  selfAssign(ticket: MyTicket): void {
+    this.ticketService.selfAssign(ticket.ticket_id).subscribe({
+      next: () => { this.toast.success('Ticket assigned to you'); this.loadTickets(); },
+      error: (err) => { this.toast.error(err.message || 'Failed to self-assign'); },
+    });
+  }
+
+  /* ── C4: ticket rating (owner, after Resolved/Closed) ── */
+  ratingValue = 0;
+  ratingExperience = '';
+  canRateSelected(): boolean {
+    const t = this.selectedTicket as any;
+    return !!t && this.isOwnerOfSelectedTicket
+      && ['Resolved', 'Closed'].includes(t.status_name) && !t.rating;
+  }
+  submitRating(): void {
+    if (!this.selectedTicket) return;
+    if (!this.ratingValue) { this.toast.warning('Please select a star rating'); return; }
+    this.ticketService.rateTicket(this.selectedTicket.ticket_id, this.ratingValue, this.ratingExperience).subscribe({
+      next: () => {
+        this.toast.success('Thanks for your feedback!');
+        (this.selectedTicket as any).rating = this.ratingValue;
+        (this.selectedTicket as any).experience = this.ratingExperience;
+        this.ratingValue = 0; this.ratingExperience = '';
+      },
+      error: (err) => { this.toast.error(err.message || 'Failed to submit rating'); },
+    });
+  }
 
   private loadAssignedUsers(): void {
     const targetTeams = ASSIGNED_TO_TEAMS.map((t: string) => t.toLowerCase());
@@ -1378,22 +1410,49 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   /* ============================================================
      FILTERS
   ============================================================ */
-  setDateRange(range: 'thisWeek' | 'lastWeek'): void {
+  setDateRange(range: 'thisWeek' | 'lastWeek' | 'currentMonth' | 'lastMonth' | 'halfYearly' | 'yearly'): void {
     this.selectedRange = range; this.showCustomDatePicker = false; this.customDateError = '';
     const today = new Date();
-    if (range === 'thisWeek') {
-      const s = new Date(today); s.setDate(today.getDate() - today.getDay());
-      const e = new Date(s); e.setDate(s.getDate() + 6);
-      this.startDate = this.toLocalISODate(s); this.endDate = this.toLocalISODate(e);
-    } else {
-      const s = new Date(today); s.setDate(today.getDate() - today.getDay() - 7);
-      const e = new Date(s); e.setDate(s.getDate() + 6);
-      this.startDate = this.toLocalISODate(s); this.endDate = this.toLocalISODate(e);
+    let s = new Date(today);
+    let e = new Date(today);
+
+    switch (range) {
+      case 'thisWeek':
+        s = new Date(today); s.setDate(today.getDate() - today.getDay());
+        e = new Date(s); e.setDate(s.getDate() + 6);
+        break;
+      case 'lastWeek':
+        s = new Date(today); s.setDate(today.getDate() - today.getDay() - 7);
+        e = new Date(s); e.setDate(s.getDate() + 6);
+        break;
+      case 'currentMonth':
+        s = new Date(today.getFullYear(), today.getMonth(), 1);
+        e = new Date(today.getFullYear(), today.getMonth() + 1, 0);   // last day of this month
+        break;
+      case 'lastMonth':
+        s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        e = new Date(today.getFullYear(), today.getMonth(), 0);       // last day of previous month
+        break;
+      case 'halfYearly':
+        s = new Date(today); s.setMonth(today.getMonth() - 6);        // rolling last 6 months
+        e = new Date(today);
+        break;
+      case 'yearly':
+        s = new Date(today); s.setFullYear(today.getFullYear() - 1);  // rolling last 12 months
+        e = new Date(today);
+        break;
+      default:
+        s = new Date(today); s.setDate(today.getDate() - today.getDay());
+        e = new Date(s); e.setDate(s.getDate() + 6);
     }
+    this.startDate = this.toLocalISODate(s); this.endDate = this.toLocalISODate(e);
     this.applyAllFilters(); this.dropdownOpen = false;
   }
 
   filterAssignUsers(): void {
+    // When the assign modal is open, the assignable list is the ticket's
+    // team+location set loaded by loadAssignableForTicket() — don't overwrite it.
+    if (this.showAssignModal) return;
     const org  = this.assignForm?.value?.orgName || this.assignOrganization;
     const loc  = CLIENT_LOCATION_MAP[org];
     const userLocId = this.getCurrentUserLocationId();

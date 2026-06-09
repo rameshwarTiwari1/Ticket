@@ -36,7 +36,8 @@ const updateTeamById = async (id, team_name, location_id) => {
   const res = await pool.query(
     `UPDATE T_TEAMS
      SET team_name = $1,
-         location_id = $2
+         location_id = $2,
+         updated_at = CURRENT_TIMESTAMP
      WHERE team_id = $3
      RETURNING *`,
     [team_name, location_id, id]

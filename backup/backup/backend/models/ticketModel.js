@@ -25,7 +25,10 @@ const resolveTeamForIssueAtLocation = async (issue_id, location_id, fallbackTeam
     return r.rows[0]?.team_id ?? null;
   };
 
-  // 1) Team mapped to the issue category — resolved at THIS location only.
+  // 1) The ISSUE category is the source of truth for routing. Resolve its mapped
+  //    team AT this location. If that team doesn't exist here, return null —
+  //    do NOT fall back to the creator's own team (that mis-routes, e.g. a DBA
+  //    issue landing on IT Services). The caller surfaces a clear 400.
   if (issue_id) {
     const mapped = await db.query(
       `SELECT te.team_name
@@ -33,11 +36,11 @@ const resolveTeamForIssueAtLocation = async (issue_id, location_id, fallbackTeam
        WHERE i.issue_id = $1`,
       [issue_id]
     );
-    const byIssue = await teamAtLocation(mapped.rows[0]?.team_name);
-    if (byIssue) return byIssue;
+    const mappedName = mapped.rows[0]?.team_name;
+    if (mappedName) return await teamAtLocation(mappedName);   // null if not at this location
   }
 
-  // 2) Explicit team name — also at THIS location only.
+  // 2) Only when the issue has no mapped team: fall back to an explicit team name.
   return await teamAtLocation(fallbackTeamName);
 };
 
@@ -115,6 +118,9 @@ const TICKET_SELECT = `
   t.approver_email,
   t.sla_breached,
   t.status_id,
+  t.rating,
+  t.experience,
+  t.rated_at,
   u1.email_id AS creator_email
 `;
 
@@ -202,13 +208,16 @@ console.log(" wing_id received:", data.wing_id);
     approver_email = await resolveApprover(location_id, team_id);
   }
 
-  // Clear, actionable error when the office has no team to handle this issue
-  // (Option B: tickets never route to another office's team).
+  // Clear, actionable VALIDATION error (HTTP 400, not 500) when the office has no
+  // team to handle this issue — tickets never route to another office's team.
   if (created_by && location_id && issue_id && !team_id) {
-    throw new Error(
+    const err = new Error(
       'No team is set up at your location to handle this category. ' +
-      'Ask an admin to create the matching team at your location, or choose a different category.'
+      'Ask an admin to map this category to a team at your location, or choose a different category.'
     );
+    err.status = 400;
+    err.code = 'NO_TEAM_MAPPING';
+    throw err;
   }
 
   const missing = [];
@@ -220,7 +229,10 @@ console.log(" wing_id received:", data.wing_id);
   if (!status_id)  missing.push("status ('Pending Approval' not seeded)");
 
   if (missing.length > 0) {
-    throw new Error(`Invalid fields: ${missing.join(', ')}`);
+    const err = new Error(`Missing or invalid fields: ${missing.join(', ')}`);
+    err.status = 400;
+    err.code = 'VALIDATION';
+    throw err;
   }
   console.log("Node Date:", new Date());
 console.log("ISO:", new Date().toISOString());
@@ -442,6 +454,18 @@ exports.updateTicket = async (id, data) => {
   ];
 
   const { rows } = await db.query(query, values);
+  return rows[0];
+};
+
+// ─── RATE TICKET (requester feedback; visible to manager/admin) ───────────────
+exports.rateTicket = async (id, rating, experience) => {
+  const { rows } = await db.query(
+    `UPDATE T_TICKETS
+     SET rating = $1, experience = $2, rated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE ticket_id = $3
+     RETURNING ticket_id, rating, experience, rated_at`,
+    [rating, experience || null, id]
+  );
   return rows[0];
 };
 

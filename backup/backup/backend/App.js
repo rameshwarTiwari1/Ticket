@@ -16,6 +16,7 @@ const authRoutes = require('./routers/auth.routes');
 const organizationRoutes = require('./routers/organizationRoutes');
 const approverRoutes = require('./routers/approverRoutes');
 const notificationRoutes = require('./routers/notificationRoutes');
+const activityRoutes = require('./routers/activityRoutes');
 
 const path = require('path');
 
@@ -34,6 +35,7 @@ const routeMap = {
   organizationRoutes,
   approverRoutes,
   notificationRoutes,
+  activityRoutes,
 };
 
 Object.entries(routeMap).forEach(([name, r]) => {
@@ -93,5 +95,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/approvers', approverRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/activity-logs', activityRoutes);
 
 module.exports = app;

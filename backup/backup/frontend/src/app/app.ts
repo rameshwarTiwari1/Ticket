@@ -3,12 +3,13 @@ import { Router, RouterOutlet, NavigationEnd, RouterModule } from '@angular/rout
 import { CommonModule } from '@angular/common';
 import { filter } from 'rxjs/operators';
 import { AuthService } from './services/auth.service';
+import { ToastComponent } from './components/toast/toast.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterModule],
-  template: `<router-outlet></router-outlet>`
+  imports: [CommonModule, RouterOutlet, RouterModule, ToastComponent],
+  template: `<router-outlet></router-outlet><app-toast></app-toast>`
 })
 export class AppComponent {
   showLayout = true;

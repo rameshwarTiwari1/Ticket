@@ -56,7 +56,17 @@ const checkSlaBreaches = async () => {
       }
     }
 
-    const recipients = [t.assignee_email, managerEmail].filter(Boolean);
+    // Admins of the ticket's org (notes Phase-1 #3: also alert admin).
+    let adminEmails = [];
+    try {
+      const admins = await db.query(
+        `SELECT email_id FROM t_user WHERE role = 'admin' AND (org_id = $1 OR org_id IS NULL)`,
+        [t.org_id]
+      );
+      adminEmails = admins.rows.map((r) => r.email_id).filter(Boolean);
+    } catch (e) { /* non-fatal */ }
+
+    const recipients = [t.assignee_email, managerEmail, ...adminEmails].filter(Boolean);
     if (recipients.length) {
       const html = `
         <div style="font-family:sans-serif;font-size:14px;">

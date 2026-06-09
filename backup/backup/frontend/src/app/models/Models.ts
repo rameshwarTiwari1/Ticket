@@ -198,6 +198,9 @@ export interface MyTicket {
   assigned_team_id?: number | null;   // routed team (used by the assign modal)
   sla_breached?: boolean;             // SLA overdue flag (README §9)
   approver_email?: string | null;
+  rating?: number | null;             // requester feedback 1..5 (manager/admin view)
+  experience?: string | null;
+  rated_at?: string | null;
   // ── Approval fields ──────────────────────────────────────
   approval_status?: 'pending' | 'approved' | 'not_approved' | null;
   approval_token?:  string | null;

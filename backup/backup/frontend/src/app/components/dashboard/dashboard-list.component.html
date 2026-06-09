@@ -66,10 +66,17 @@
       <i class="fa-solid fa-users"></i>
       <span>Team</span>
     </a>
-    <!-- Approvers (admin) — manage who receives approval emails -->
-    <a *ngIf="isAdmin" routerLink="/approvers" routerLinkActive="active" class="menu-item">
+    <!-- Approvers (admin) — inline tab, no separate URL (notes Phase-2 #7) -->
+    <a *ngIf="isAdmin" (click)="setSidebarTab('approvers')"
+       [class.active]="activeSidebarTab === 'approvers'" class="menu-item">
       <i class="fa-solid fa-user-check"></i>
       <span>Approvers</span>
+    </a>
+    <!-- Activity logs (admin / manager) -->
+    <a *ngIf="isAdmin || isSiteManager" (click)="setSidebarTab('logs')"
+       [class.active]="activeSidebarTab === 'logs'" class="menu-item">
+      <i class="fa-solid fa-clock-rotate-left"></i>
+      <span>Activity Logs</span>
     </a>
   </aside>
 
@@ -101,6 +108,10 @@
             <ng-container *ngIf="selectedRange === 'allTime'">All Time</ng-container>
             <ng-container *ngIf="selectedRange === 'thisWeek'">This Week</ng-container>
             <ng-container *ngIf="selectedRange === 'lastWeek'">Last Week</ng-container>
+            <ng-container *ngIf="selectedRange === 'currentMonth'">Current Month</ng-container>
+            <ng-container *ngIf="selectedRange === 'lastMonth'">Last Month</ng-container>
+            <ng-container *ngIf="selectedRange === 'halfYearly'">Half-Yearly</ng-container>
+            <ng-container *ngIf="selectedRange === 'yearly'">Yearly</ng-container>
             <ng-container *ngIf="selectedRange === 'custom'">
               {{ customStartDate | date:'dd MMM' }} – {{ customEndDate | date:'dd MMM yyyy' }}
             </ng-container>
@@ -111,6 +122,10 @@
             <a (click)="setAllTime()">All Time</a>
             <a (click)="setDateRange('thisWeek')">This Week</a>
             <a (click)="setDateRange('lastWeek')">Last Week</a>
+            <a (click)="setDateRange('currentMonth')">Current Month</a>
+            <a (click)="setDateRange('lastMonth')">Last Month</a>
+            <a (click)="setDateRange('halfYearly')">Half-Yearly</a>
+            <a (click)="setDateRange('yearly')">Yearly</a>
             <a (click)="openCustomDatePicker()">Custom Range</a>
           </div>
 
@@ -296,18 +311,21 @@
         </div>
         <div class="display_button">
           <div class="row">
-            <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
+            <!-- Admin/Manager: assign or RE-assign (B1) -->
             <ng-container *ngIf="canManageTickets">
               <button
                 class="assign-btn"
                 [class.assigned]="ticket.assigned_to_id"
-                [disabled]="!!ticket.assigned_to_id || ticket.approval_status !== 'approved'"
+                [disabled]="ticket.approval_status !== 'approved'"
                 [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
-                (click)="!ticket.assigned_to_id && ticket.approval_status === 'approved' && openAssignModal(ticket)">
-                {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                (click)="ticket.approval_status === 'approved' && openAssignModal(ticket)">
+                {{ ticket.assigned_to_id ? 'Reassign' : 'Assign' }}
               </button>
             </ng-container>
-
+            <!-- Employee: self-assign an unassigned ticket from their team pool (B2) -->
+            <button *ngIf="canSelfAssignRow(ticket)" class="assign-btn" (click)="selfAssign(ticket)">
+              Assign to me
+            </button>
           </div>
           <button class="open-btn" (click)="openTicket(ticket)">
             Open Ticket<i class="fa-solid fa-arrow-right"></i>
@@ -392,11 +410,14 @@
             <td class="action-col">
               <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
               <ng-container *ngIf="canManageTickets">
-                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id" [disabled]="!!ticket.assigned_to_id"
-                  (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
-                  {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id"
+                  [disabled]="ticket.approval_status !== 'approved'"
+                  [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
+                  (click)="ticket.approval_status === 'approved' && openAssignModal(ticket)">
+                  {{ ticket.assigned_to_id ? 'Reassign' : 'Assign' }}
                 </button>
               </ng-container>
+              <button *ngIf="canSelfAssignRow(ticket)" class="assign-btn" (click)="selfAssign(ticket)">Assign to me</button>
               <button class="open-btn" (click)="openTicket(ticket)">
                 Open Ticket <i class="fa-solid fa-arrow-right"></i>
               </button>
@@ -680,8 +701,8 @@
           </ul>
         </div>
 
-        <!-- Attachments -->
-        <div class="form-group">
+        <!-- Attachments — hidden for now (notes Phase-1 #5). Re-enable by removing *ngIf. -->
+        <div class="form-group" *ngIf="false">
           <label>ATTACHMENTS <span class="optional-label">(Optional)</span></label>
           <input type="file" (change)="onFileChange($event)" accept="image/*" />
         </div>
@@ -758,11 +779,14 @@
             <div class="row">
               <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
               <ng-container *ngIf="canManageTickets">
-                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id" [disabled]="!!ticket.assigned_to_id"
-                  (click)="!ticket.assigned_to_id && openAssignModal(ticket)">
-                  {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                <button class="assign-btn" [class.assigned]="ticket.assigned_to_id"
+                  [disabled]="ticket.approval_status !== 'approved'"
+                  [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
+                  (click)="ticket.approval_status === 'approved' && openAssignModal(ticket)">
+                  {{ ticket.assigned_to_id ? 'Reassign' : 'Assign' }}
                 </button>
               </ng-container>
+              <button *ngIf="canSelfAssignRow(ticket)" class="assign-btn" (click)="selfAssign(ticket)">Assign to me</button>
             </div>
             <button class="open-btn" (click)="openTicket(ticket)">
               Open Ticket<i class="fa-solid fa-arrow-right"></i>
@@ -836,12 +860,13 @@
                 <!-- Fixed: Show assign button to Admin, IT Services, DBA, Manager -->
                 <ng-container *ngIf="canManageTickets">
                   <button class="assign-btn" [class.assigned]="ticket.assigned_to_id"
-                    [disabled]="!!ticket.assigned_to_id || ticket.approval_status !== 'approved'"
+                    [disabled]="ticket.approval_status !== 'approved'"
                     [title]="ticket.approval_status !== 'approved' ? 'Ticket must be approved before assigning' : ''"
-                    (click)="!ticket.assigned_to_id && ticket.approval_status === 'approved' && openAssignModal(ticket)">
-                    {{ ticket.assigned_to_id ? (ticket.assigned_to_name || 'Assigned') : 'Assign' }}
+                    (click)="ticket.approval_status === 'approved' && openAssignModal(ticket)">
+                    {{ ticket.assigned_to_id ? 'Reassign' : 'Assign' }}
                   </button>
                 </ng-container>
+                <button *ngIf="canSelfAssignRow(ticket)" class="assign-btn" (click)="selfAssign(ticket)">Assign to me</button>
                 <button class="open-btn" (click)="openTicket(ticket)">
                   Open Ticket <i class="fa-solid fa-arrow-right"></i>
                 </button>
@@ -1320,6 +1345,34 @@
     </div>
   </div>
 
+  <!-- ================= APPROVERS (inline tab, admin) ================= -->
+  <div *ngIf="activeSidebarTab === 'approvers'" class="users-container">
+    <app-approver-management></app-approver-management>
+  </div>
+
+  <!-- ================= ACTIVITY LOGS (admin / manager) ================= -->
+  <div *ngIf="activeSidebarTab === 'logs'" class="users-container">
+    <div class="users-header"><h2>Activity Logs</h2></div>
+    <div class="table-scroll-container">
+      <table class="users-table">
+        <thead>
+          <tr><th>When</th><th>User</th><th>Activity</th><th>Details</th><th>Change</th><th>IP</th></tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let log of activityLogs">
+            <td>{{ log.created_at | date:'dd MMM yyyy, hh:mm a' }}</td>
+            <td>{{ log.user_name || '—' }}</td>
+            <td>{{ log.activity_type }}</td>
+            <td>{{ log.description }}</td>
+            <td>{{ log.old_value ? (log.old_value + ' → ' + (log.new_value || '')) : (log.new_value || '') }}</td>
+            <td>{{ log.ip_address || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p *ngIf="activityLogs.length === 0" style="padding:12px;color:#9ca3af;">No activity recorded yet.</p>
+    </div>
+  </div>
+
   <!-- ================= GLOBAL TICKET DETAILS ================= -->
 
   <div *ngIf="selectedTicket" class="dashboard-container">
@@ -1341,11 +1394,11 @@
     </span>
     <span class="approval-badge approval-approved"
           *ngIf="selectedTicket.approval_status === 'approved'">
-      ✅ Approved by {{ selectedTicket.approved_by }}
+      ✅ Approved by {{ selectedTicket.approved_by || selectedTicket.approved_by_name }}
     </span>
     <span class="approval-badge approval-rejected"
           *ngIf="selectedTicket.approval_status === 'not_approved'">
-      ❌ Not Approved by {{ selectedTicket.approved_by }}
+      ❌ Not Approved by {{ selectedTicket.approved_by || selectedTicket.approved_by_name }}
     </span>
   </span>
 </div>
@@ -1485,6 +1538,35 @@
              *ngIf="isOwnerOfSelectedTicket &&
                     (selectedTicket.status_name === 'Resolved' || selectedTicket.status_name === 'Closed')">
           <button class="assign-btn" (click)="reopenTicket()">Reopen Ticket</button>
+        </div>
+
+        <!-- C4: rating input — owner, after Resolved/Closed, not yet rated -->
+        <div class="detail-row full-width-row" *ngIf="canRateSelected()">
+          <span class="label">Rate this resolution</span>
+          <div class="description-box">
+            <span>
+              <i *ngFor="let s of [1,2,3,4,5]" class="fa-star"
+                 [class.fa-solid]="s <= ratingValue" [class.fa-regular]="s > ratingValue"
+                 style="cursor:pointer;color:#f59e0b;font-size:18px;margin-right:3px;"
+                 (click)="ratingValue = s"></i>
+            </span>
+            <textarea [(ngModel)]="ratingExperience" rows="2" placeholder="Share your experience (optional)"
+              style="width:100%;margin-top:8px;"></textarea>
+            <button class="submit-comment-btn" (click)="submitRating()">Submit Rating</button>
+          </div>
+        </div>
+
+        <!-- C4: show submitted rating (owner + manager/admin only) -->
+        <div class="detail-row full-width-row"
+             *ngIf="selectedTicket.rating && (canManageTickets || isOwnerOfSelectedTicket)">
+          <span class="label">Rating</span>
+          <div class="value">
+            <span style="color:#f59e0b;">
+              <i *ngFor="let s of [1,2,3,4,5]" class="fa-star"
+                 [class.fa-solid]="s <= selectedTicket.rating" [class.fa-regular]="s > selectedTicket.rating"></i>
+            </span>
+            <div *ngIf="selectedTicket.experience" style="margin-top:4px;font-style:italic;">"{{ selectedTicket.experience }}"</div>
+          </div>
         </div>
 
         <!-- COMMENTS SECTION — visible to all, but only IT Services / Admin can post -->

@@ -4,6 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node Server.js",
+    "migrate": "node scripts/migrate.js",
+    "migrate:status": "node scripts/migrate.js --status",
+    "migrate:passwords": "node scripts/migrate_passwords.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
