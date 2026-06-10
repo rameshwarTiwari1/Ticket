@@ -298,6 +298,29 @@ exports.update = async (req, res) => {
     if (touchingManageFields && !access.canEditTicket(req.user, existing))
       return res.status(403).json({ message: 'You are not allowed to edit this ticket' });
 
+    // If this edit (re)assigns to a PERSON, that person must belong to the
+    // ticket's team + location + org (same rule as the assign endpoint). Team
+    // strings like "IT/HELP_DESK"/"DBA" won't match a user name, so they're skipped.
+    if (req.body.assigned_to_name) {
+      const person = await db.query(
+        `SELECT register_id FROM T_USER
+         WHERE LOWER(TRIM(first_name || ' ' || last_name)) = LOWER(TRIM($1)) LIMIT 1`,
+        [req.body.assigned_to_name]
+      );
+      if (person.rows.length) {
+        const ok = await db.query(
+          `SELECT 1 FROM T_USER WHERE register_id = $1 AND team_id = $2 AND location_id = $3 AND org_id = $4`,
+          [person.rows[0].register_id, existing.assigned_team_id, existing.location_id, existing.org_id]
+        );
+        if (!ok.rows.length) {
+          return res.status(400).json({
+            message: "You can only assign this ticket to a member of its team, location and organization.",
+            code: 'BAD_ASSIGNEE',
+          });
+        }
+      }
+    }
+
     // Only the ticket owner may edit the description (use the id, not a name match).
     if (req.body.description !== undefined && req.body.description !== null) {
       const ownerId = existing.created_by_id;
@@ -409,15 +432,18 @@ exports.assignTicket = async (req, res) => {
       return res.status(403).json({ message: statusMsg, approval_status: existing.approval_status });
     }
 
-    // The assignee must belong to the ticket's team + location (README §7).
-    if (!access.isAdmin(req.user)) {
+    // The assignee MUST belong to the ticket's team + location + org — for EVERY
+    // role, admin included. (Prevents e.g. a DBA ticket being assigned to an IT
+    // Services employee.)
+    {
       const chk = await db.query(
-        `SELECT 1 FROM T_USER WHERE register_id = $1 AND team_id = $2 AND location_id = $3`,
-        [req.body.assigned_to, existing.assigned_team_id, existing.location_id]
+        `SELECT 1 FROM T_USER WHERE register_id = $1 AND team_id = $2 AND location_id = $3 AND org_id = $4`,
+        [req.body.assigned_to, existing.assigned_team_id, existing.location_id, existing.org_id]
       );
       if (!chk.rows.length) {
         return res.status(400).json({
-          message: "You can only assign to employees in this ticket's team and location",
+          message: "You can only assign this ticket to a member of its team, location and organization.",
+          code: 'BAD_ASSIGNEE',
         });
       }
     }

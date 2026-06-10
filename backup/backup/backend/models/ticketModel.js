@@ -242,9 +242,21 @@ let assigned_to_user = data.assigned_to_name;
 console.log("assign_to_user",assigned_to_user);
 
 
+  // A person may only be PRE-ASSIGNED at creation if they belong to the ticket's
+  // team + location + org; otherwise the ticket is created unassigned (it gets
+  // assigned later, post-approval, via the validated assign path).
+  let validatedAssignedTo = null;
+  if (assigned_to && team_id && location_id) {
+    const chk = await db.query(
+      `SELECT 1 FROM t_user WHERE register_id = $1 AND team_id = $2 AND location_id = $3 AND org_id = $4`,
+      [Number(assigned_to), team_id, location_id, org_id]
+    );
+    if (chk.rows.length) validatedAssignedTo = Number(assigned_to);
+  }
+
   const { rows } = await db.query(`
     INSERT INTO T_TICKETS (
-      ticket_number, created_by, assigned_to, assigned_to_user, 
+      ticket_number, created_by, assigned_to, assigned_to_user,
       subject, description,
       type_id, issue_id, assigned_team_id, status_id, priority,
       email_id, additional_email, attachment, sla_due_at,
@@ -255,7 +267,7 @@ console.log("assign_to_user",assigned_to_user);
   `, [
     ticket_number,
     created_by,
-    assigned_to ? Number(assigned_to) : null,
+    validatedAssignedTo,
     assigned_to_user,
     data.subject,
     data.description || null,
