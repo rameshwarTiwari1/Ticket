@@ -47,6 +47,7 @@ import { CommentService } from '../../services/comment.service';
 import { TicketComment, Approver } from '../../models/Models';
 import { ApproverService } from '../../services/approver.service';
 import { ToastService } from '../../services/toast.service';
+import { ConfirmService } from '../../services/confirm.service';
 import { ActivityService, ActivityLog } from '../../services/activity.service';
 import { ApproverManagementComponent } from '../approver/approver-management.component';
 
@@ -266,6 +267,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     private approverService: ApproverService,
     private activityService: ActivityService,
     private toast: ToastService,
+    private confirm: ConfirmService,
     private ChangeDetectorRef: ChangeDetectorRef,
   ) {}
 
@@ -284,10 +286,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     const role = (user.role || '').toLowerCase();   // authoritative — set by Admin
 
     // ── Role (separate from team membership) ──────────────────────────────────
-    this.isAdmin       = role === 'admin'   || team === 'Admin';
+    // Role is the ONLY source of truth — being in the team named "Admin" does NOT
+    // make you an admin (the backend gates admin routes by role, so granting admin
+    // UI by team name only produced screens whose actions 403 anyway).
+    this.isAdmin       = role === 'admin';
     this.isSiteManager = role === 'manager';                       // a real Manager
-    this.isEmployee    = role === 'employee' || (!role && team === 'Employee');
-    this.isUser        = role === 'user'     || (!role && team === 'User');
+    this.isEmployee    = role === 'employee';
+    this.isUser        = role === 'user' || !role;                 // default to least-privilege
 
     // ── Team identity (which functional team they belong to) ──────────────────
     this.isITService   = team === 'IT Services' || team === 'IT Service';
@@ -808,8 +813,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  deleteTeam(id: number): void {
-    if (!confirm('Are you sure you want to delete this team?')) return;
+  async deleteTeam(id: number): Promise<void> {
+    if (!(await this.confirm.ask('Are you sure you want to delete this team?',
+          { title: 'Delete team', confirmText: 'Delete', danger: true }))) return;
     this.teamService.deleteTeam(id).subscribe({
       next: () => { this.loadTeams(); this.successMessage = 'Team deleted successfully.'; },
       error: (err) => { this.errorMessage = err.error?.message || 'Failed to delete team.'; },
@@ -915,13 +921,14 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.selectedReassignUserId = null;
 
     this.ticketService.getTicketsByUser(id).subscribe({
-      next: (tickets) => {
+      next: async (tickets) => {
         const pending = tickets.filter(t =>
           t.status_name === 'Open' || t.status_name === 'Reopened' || t.status_name === 'In Progress'
         );
         if (pending.length > 0) { this.pendingTicketCount = pending.length; this.showReassignModal = true; }
         else {
-          const ok = confirm(`Are you sure you want to delete "${userName}"?\nThis action cannot be undone.`);
+          const ok = await this.confirm.ask(`Are you sure you want to delete "${userName}"?\nThis action cannot be undone.`,
+            { title: 'Delete user', confirmText: 'Delete', danger: true });
           if (ok) { this.finalDeleteUser(id, userName); }
           else    { this.userToDeleteId = null; this.userToDeleteName = ''; }
         }
@@ -930,13 +937,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  confirmReassignAndDelete(): void {
+  async confirmReassignAndDelete(): Promise<void> {
     if (!this.selectedReassignUserId) { this.toast.warning('Please select a user to reassign the tickets to.'); return; }
     if (!this.userToDeleteId) return;
     const reassignUser = this.allUsers.find((u) => u.id === this.selectedReassignUserId);
     if (!reassignUser) return;
     const msg = `${this.pendingTicketCount} pending ticket(s) will be reassigned to "${reassignUser.firstName} ${reassignUser.lastName}".\n\nThen "${this.userToDeleteName}" will be permanently deleted.\n\nProceed?`;
-    if (!confirm(msg)) return;
+    if (!(await this.confirm.ask(msg, { title: 'Reassign & delete', confirmText: 'Proceed', danger: true }))) return;
     this.isDeleting = true;
     this.userService.reassignTickets(this.userToDeleteId, this.selectedReassignUserId).subscribe({
       next: () => {
@@ -1212,9 +1219,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   closeTicketDetails(): void { this.selectedTicket = null; }
 
   /* Requester reopens their own Resolved/Closed ticket (README §4). */
-  reopenTicket(): void {
+  async reopenTicket(): Promise<void> {
     if (!this.selectedTicket) return;
-    if (!confirm('Reopen this ticket?')) return;
+    if (!(await this.confirm.ask('Reopen this ticket?', { title: 'Reopen ticket', confirmText: 'Reopen' }))) return;
     this.ticketService.update(this.selectedTicket.ticket_id, { status_name: 'Reopened' } as any).subscribe({
       next: () => {
         this.toast.success('Ticket reopened.');
@@ -1318,9 +1325,16 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /* ── B2: employee self-assign an unassigned ticket from their team pool ── */
   canSelfAssignRow(ticket: MyTicket): boolean {
-    return this.isEmployee
-      && !(ticket as any).assigned_to_id
-      && (ticket as any).approval_status === 'approved';
+    if (!this.isEmployee) return false;
+    if ((ticket as any).assigned_to_id) return false;
+    if ((ticket as any).approval_status !== 'approved') return false;
+    // mirror backend canSelfAssign: only the unassigned pool of the employee's
+    // OWN team + location + org (so a ticket they merely raised for another team
+    // shows as read-only, with no dead "Assign to me" button).
+    const u = this.currentUser as any;
+    return Number((ticket as any).assigned_team_id) === Number(u?.teamId)
+        && Number((ticket as any).location_id)      === Number(this.getCurrentUserLocationId())
+        && Number((ticket as any).org_id)           === Number(u?.org_id ?? u?.orgId);
   }
   selfAssign(ticket: MyTicket): void {
     this.ticketService.selfAssign(ticket.ticket_id).subscribe({

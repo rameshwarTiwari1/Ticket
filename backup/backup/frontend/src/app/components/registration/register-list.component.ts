@@ -5,6 +5,7 @@ import { Router, RouterModule } from '@angular/router';
 import { RegistrationService } from '../../services/registration.service';
 import { TeamService } from '../../services/team.service';
 import { OrganizationService } from '../../services/organization.service';
+import { ToastService } from '../../services/toast.service';
 import { CommonModule } from '@angular/common';
 import { Team, Location, Wing, Organization } from '../../models/Models';
 
@@ -42,6 +43,7 @@ export class RegistrationComponent implements OnInit {
     private teamService: TeamService,
     private orgService:  OrganizationService,
     private router:      Router,
+    private toast:       ToastService,
   ) {
     this.form = this.fb.group({
       firstName:    ['', Validators.required],
@@ -106,20 +108,20 @@ export class RegistrationComponent implements OnInit {
 
   sendOtp(): void {
     const emailControl = this.form.get('email');
-    if (!emailControl?.valid) { alert('Enter a valid email first'); return; }
+    if (!emailControl?.valid) { this.toast.warning('Enter a valid email first'); return; }
     if (this.isSendingOtp) return;   // prevent double-send
 
     this.isSendingOtp = true;
     this.service.sendOtp(emailControl.value).subscribe({
-      next: () => { this.otpSent = true; this.isSendingOtp = false; alert('OTP sent to your email'); },
-      error: () => { this.isSendingOtp = false; alert('Failed to send OTP. Please try again.'); },
+      next: () => { this.otpSent = true; this.isSendingOtp = false; this.toast.success('OTP sent to your email'); },
+      error: () => { this.isSendingOtp = false; this.toast.error('Failed to send OTP. Please try again.'); },
     });
   }
 
   verifyOtp(): void {
     const email = this.form.value.email;
     const otp   = this.form.value.otp;
-    if (!otp) { alert('Enter OTP first'); return; }
+    if (!otp) { this.toast.warning('Enter OTP first'); return; }
     if (this.isVerifyingOtp) return;
 
     this.isVerifyingOtp = true;
@@ -128,15 +130,15 @@ export class RegistrationComponent implements OnInit {
         this.otpVerified = true;
         this.form.get('password')?.enable();
         this.isVerifyingOtp = false;
-        alert('OTP Verified successfully');
+        this.toast.success('OTP Verified successfully');
       },
-      error: () => { this.isVerifyingOtp = false; alert('Invalid or expired OTP'); },
+      error: () => { this.isVerifyingOtp = false; this.toast.error('Invalid or expired OTP'); },
     });
   }
 
 submit(): void {
-  if (!this.otpVerified) { alert('Please verify OTP first'); return; }
-  if (this.form.invalid)  { this.form.markAllAsTouched(); alert('Please fill all required fields'); return; }
+  if (!this.otpVerified) { this.toast.warning('Please verify OTP first'); return; }
+  if (this.form.invalid)  { this.form.markAllAsTouched(); this.toast.warning('Please fill all required fields'); return; }
   if (this.isSubmitting) return;   // prevent double-submit
   this.isSubmitting = true;
 
@@ -159,12 +161,12 @@ submit(): void {
   this.service.registerUser(payload).subscribe({
     next: () => {
       this.isSubmitting = false;
-      alert('Registered successfully! Please login.');
-      setTimeout(() => this.router.navigateByUrl('/login'), 500);
+      this.toast.success('Registered successfully! Please login.');
+      setTimeout(() => this.router.navigateByUrl('/login'), 800);
     },
     error: (err) => {
       this.isSubmitting = false;
-      alert(err.error?.message || 'Registration failed. Please try again.');
+      this.toast.error(err.error?.message || 'Registration failed. Please try again.');
     },
   });
 }

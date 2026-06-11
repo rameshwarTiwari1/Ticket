@@ -50,15 +50,18 @@ function ticketVisibilityScope(user, opts = {}) {
     };
   }
 
-  // EMPLOYEE: tickets assigned to them, PLUS the unassigned pool of their own
-  // org+location+team (so they can self-assign — notes Phase-1 #2).
+  // EMPLOYEE: tickets they RAISED (created_by) or are assigned to them, PLUS the
+  // unassigned pool of their own org+location+team (so they can self-assign — notes
+  // Phase-1 #2). created_by is included so an employee always sees a ticket they
+  // raised, even when it routes to a different team.
   if (isEmployee(user)) {
+    const created = next(user.userId);
     const uid  = next(user.userId);
     const team = next(user.team_id);
     const loc  = next(user.location_id);
     const org  = next(user.org_id);
     return {
-      clause: `(t.assigned_to = ${uid} OR (t.assigned_to IS NULL ` +
+      clause: `(t.created_by = ${created} OR t.assigned_to = ${uid} OR (t.assigned_to IS NULL ` +
               `AND t.assigned_team_id = ${team} AND t.location_id = ${loc} AND t.org_id = ${org}))`,
       values,
     };
@@ -86,6 +89,8 @@ function canViewTicket(user, ticket) {
   if (isAdmin(user)) return true;
   if (isManager(user)) return managerOwnsTicket(user, ticket);
   if (isEmployee(user)) {
+    // a ticket they raised is always visible to them
+    if (Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId)) return true;
     const assignee = ticket.assigned_to_id ?? ticket.assigned_to;
     if (Number(assignee) === Number(user.userId)) return true;
     // unassigned pool of their own org+location+team (for self-assign)

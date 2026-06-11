@@ -22,14 +22,18 @@ WHERE LOWER(TRIM(issue_name)) IN ('database issue', 'backup issue', 'sftp issue'
 --     Only UNASSIGNED tickets, and only when the issue's mapped team actually has
 --     an instance at the ticket's OWN location — re-point to that correct local
 --     team. Tickets already being worked (assigned) are left untouched.
+-- NOTE: in UPDATE ... FROM, the target table (tk) cannot be referenced inside a
+-- JOIN's ON clause — only in WHERE. So `correct` is comma-joined and its match
+-- conditions (including the tk.location_id one) live in the WHERE below.
 UPDATE t_tickets tk
 SET assigned_team_id = correct.team_id,
     updated_at       = CURRENT_TIMESTAMP
 FROM t_issues i
-JOIN t_teams mapped  ON mapped.team_id = i.mapped_team_id
-JOIN t_teams correct ON LOWER(TRIM(correct.team_name)) = LOWER(TRIM(mapped.team_name))
-                    AND correct.location_id = tk.location_id
+JOIN t_teams mapped ON mapped.team_id = i.mapped_team_id,
+     t_teams correct
 WHERE tk.issue_id = i.issue_id
+  AND LOWER(TRIM(correct.team_name)) = LOWER(TRIM(mapped.team_name))
+  AND correct.location_id = tk.location_id
   AND tk.assigned_to IS NULL
   AND tk.assigned_team_id IS DISTINCT FROM correct.team_id;
 

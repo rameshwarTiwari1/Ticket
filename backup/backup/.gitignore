@@ -1,0 +1,17 @@
+# =============================================================================
+# Local Docker dev setup — NOT pushed to git (per project owner's request).
+# Everything below is needed only to run the stack on a local machine.
+# =============================================================================
+docker-compose.yml
+docker-compose.*.yml
+docker/
+DOCKER_SETUP.md
+
+backend/Dockerfile
+backend/.dockerignore
+frontend/Dockerfile
+frontend/.dockerignore
+
+# Local env overrides
+.env.docker
+*.env.local

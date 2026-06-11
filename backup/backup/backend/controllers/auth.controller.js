@@ -101,16 +101,20 @@ exports.registerUser = async (req, res) => {
     if (exists.rows.length > 0)
       return res.status(409).json({ message: 'Email or Employee ID already registered' });
 
-    // ── 4. Resolve team_name → team_id ───────────────────────────────────────
+    // ── 4. Resolve team_name → team_id (+ the team's location) ───────────────
+    // Every team belongs to exactly one location, so we stamp the new user's
+    // location_id from their chosen team. Without this, location_id stays NULL
+    // and the user cannot raise tickets (creation needs the creator's location).
     const teamRow = await pool.query(
-      `SELECT team_id FROM T_TEAMS
+      `SELECT team_id, location_id FROM T_TEAMS
        WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1))`,
       [team_name]
     );
     if (!teamRow.rows.length)
       return res.status(400).json({ message: `Team "${team_name}" not found` });
 
-    const team_id = teamRow.rows[0].team_id;
+    const team_id     = teamRow.rows[0].team_id;
+    const location_id = teamRow.rows[0].location_id;   // derived from the team
 
     // ── 5. Resolve org_name → org_id (optional) ──────────────────────────────
     let org_id = null;
@@ -135,9 +139,9 @@ exports.registerUser = async (req, res) => {
       `INSERT INTO T_USER
          (employee_id, first_name, last_name,
           team_id, location_id, wing_id, email_id, password_hash, is_verified, org_id, role)
-       VALUES ($1, $2, $3,  $4, NULL, NULL, $5, $6, TRUE, $7, 'user')`,
+       VALUES ($1, $2, $3,  $4, $8, NULL, $5, $6, TRUE, $7, 'user')`,
       [employee_id, first_name, last_name,
-       team_id, email_id, hashedPassword, org_id]
+       team_id, email_id, hashedPassword, org_id, location_id]
     );
 
     // ── 7. Send welcome email ─────────────────────────────────────────────────

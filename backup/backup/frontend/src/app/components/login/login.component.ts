@@ -1,8 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { ToastService } from '../../services/toast.service';
 import { User } from '../../models/Models';
 
 @Component({
@@ -25,7 +26,9 @@ export class LoginComponent implements OnInit {
   constructor(
     private authService: AuthService,
     private router:      Router,
-  private route: ActivatedRoute
+    private route:       ActivatedRoute,
+    private toast:       ToastService,
+    private cdr:         ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -54,7 +57,7 @@ export class LoginComponent implements OnInit {
     this.message = '';
 
     if (!this.email || !this.password) {
-      this.message = 'Please enter your email and password.';
+      this.toast.warning('Please enter your email and password.');
       return;
     }
 
@@ -69,7 +72,13 @@ export class LoginComponent implements OnInit {
       },
       error: (err) => {
         this.isLoading = false;
-        this.message   = err.message || 'Login failed. Please check your credentials.';
+        const msg = err.message || 'Login failed. Please check your credentials.';
+        this.message = msg;
+        this.toast.error(msg);
+        // HttpClient uses withFetch() and the app has no zone provider, so the
+        // error callback runs outside change detection — repaint manually so the
+        // button leaves its "Signing In..." state and the message renders.
+        this.cdr.detectChanges();
       }
     });
   }

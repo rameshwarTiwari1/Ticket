@@ -6,6 +6,7 @@ import { ApproverService } from '../../services/approver.service';
 import { LocationService } from '../../services/location.service';
 import { TeamService } from '../../services/team.service';
 import { OrganizationService } from '../../services/organization.service';
+import { ConfirmService } from '../../services/confirm.service';
 import { Approver, Location, Team, Organization } from '../../models/Models';
 
 // Admin screen to manage the approver registry (README §6).
@@ -39,6 +40,7 @@ export class ApproverManagementComponent implements OnInit {
     private locationSvc: LocationService,
     private teamSvc: TeamService,
     private orgSvc: OrganizationService,
+    private confirm: ConfirmService,
   ) {}
 
   ngOnInit(): void {
@@ -107,9 +109,10 @@ export class ApproverManagementComponent implements OnInit {
     }
   }
 
-  remove(a: Approver): void {
+  async remove(a: Approver): Promise<void> {
     if (!a.approver_id || this.deletingId) return;
-    if (!confirm(`Remove approver ${a.approver_email}?`)) return;
+    if (!(await this.confirm.ask(`Remove approver ${a.approver_email}?`,
+          { title: 'Remove approver', confirmText: 'Remove', danger: true }))) return;
     this.clearMessages();
     this.deletingId = a.approver_id;
     this.approverSvc.remove(a.approver_id).subscribe({

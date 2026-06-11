@@ -4,12 +4,13 @@ import { CommonModule } from '@angular/common';
 import { filter } from 'rxjs/operators';
 import { AuthService } from './services/auth.service';
 import { ToastComponent } from './components/toast/toast.component';
+import { ConfirmDialogComponent } from './components/confirm/confirm-dialog.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterModule, ToastComponent],
-  template: `<router-outlet></router-outlet><app-toast></app-toast>`
+  imports: [CommonModule, RouterOutlet, RouterModule, ToastComponent, ConfirmDialogComponent],
+  template: `<router-outlet></router-outlet><app-toast></app-toast><app-confirm-dialog></app-confirm-dialog>`
 })
 export class AppComponent {
   showLayout = true;
