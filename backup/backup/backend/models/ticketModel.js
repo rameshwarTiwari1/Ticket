@@ -199,8 +199,13 @@ console.log(" wing_id received:", data.wing_id);
   // ── New tickets always start at "Pending Approval" (README §4). ─────────────
   const status_id = await getIdByName('ticket_status', 'status_id', 'status_name', STATUS.PENDING_APPROVAL);
 
-  // ── Approver: use the one picked on the form (if it's a valid approver for
-  //    this location), else auto-select from the registry by location+team (§6). ──
+  // ── Approver resolution (README §6) — the APPROVER is the admin-assigned
+  //    "reporting manager" from the approver registry, NOT the team manager who
+  //    handles the ticket. Order:
+  //      1. Explicit pick on the form (validated against the registry), else
+  //      2. Auto-select from the registry by location+team (location default
+  //         fallback). If the registry has no entry, the ticket stays Pending
+  //         Approval until an admin adds an approver via /approvers (README §6 c).
   let approver_email = null;
   if (data.approver_email && await isApproverForLocation(data.approver_email, location_id)) {
     approver_email = data.approver_email;
@@ -398,6 +403,14 @@ exports.updateApprovalStatus = async (token, decision, approverEmail) => {
 
 // ─── UPDATE TICKET ────────────────────────────────────────────────────────────
 exports.updateTicket = async (id, data) => {
+  // Existing ticket context — location is IMMUTABLE (README §5) and drives both
+  // team re-routing and approver resolution below.
+  const exRes = await db.query(
+    `SELECT location_id, org_id, issue_id, assigned_team_id, approver_email
+       FROM T_TICKETS WHERE ticket_id = $1`, [id]
+  );
+  const ex = exRes.rows[0] || {};
+
   const newAssignedToTeam = data.assigned_to_name && isTeamString(data.assigned_to_name)
     ? data.assigned_to_name.toUpperCase().trim()
     : null;
@@ -412,9 +425,47 @@ exports.updateTicket = async (id, data) => {
 
   const type_id   = data.type_name   ? await getIdByName('T_TYPES',       'type_id',   'type_name',   data.type_name)   : null;
   const issue_id  = data.issue_name  ? await getIdByName('T_ISSUES',      'issue_id',  'issue_name',  data.issue_name)  : null;
-  const team_id   = data.team_name   ? await getIdByName('T_TEAMS',       'team_id',   'team_name',   data.team_name)   : null;
   const status_id = data.status_name ? await getIdByName('ticket_status', 'status_id', 'status_name', data.status_name) : null;
   const client_id = data.client_name ? await getIdByName('T_CLIENTS',     'client_id', 'client_name', data.client_name) : null;
+
+  // ── Team routing (README §7). When the issue/category actually CHANGES, the
+  //    team is re-routed to the issue's mapped team AT the ticket's (immutable)
+  //    location. Otherwise we resolve the supplied team name AT that location, so
+  //    a same-named team at another office can never be picked (Golden Rule §2). ─
+  const issueChanged = issue_id && Number(issue_id) !== Number(ex.issue_id);
+  let team_id = null;
+  if (issueChanged && ex.location_id) {
+    team_id = await resolveTeamForIssueAtLocation(issue_id, ex.location_id, data.team_name);
+    if (issue_id && !team_id) {
+      const err = new Error(
+        'No team is set up at this location to handle the selected category. ' +
+        'Choose a different category, or ask an admin to map it to a team here.'
+      );
+      err.status = 400;
+      err.code = 'NO_TEAM_MAPPING';
+      throw err;
+    }
+  } else if (data.team_name) {
+    const r = await db.query(
+      `SELECT team_id FROM T_TEAMS
+       WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1)) AND location_id = $2 LIMIT 1`,
+      [data.team_name, ex.location_id]
+    );
+    team_id = r.rows[0]?.team_id
+      ?? await getIdByName('T_TEAMS', 'team_id', 'team_name', data.team_name);
+  }
+
+  // ── Keep the approver consistent: an explicit (already-validated) approver
+  //    wins; otherwise, when the team was re-routed, re-resolve the approver for
+  //    the new team so the approval email still goes to the right person (§6). ───
+  let approver_email = null;
+  if (data.approver_email) {
+    approver_email = data.approver_email;
+  } else if (issueChanged && team_id) {
+    // Re-routed to a new team → re-resolve the registry approver for that team
+    // so the approval reaches the right designated approver.
+    approver_email = await resolveApprover(ex.location_id, team_id);
+  }
 
   let resolved_at = null;
   let closed_at   = null;
@@ -440,12 +491,11 @@ exports.updateTicket = async (id, data) => {
       updated_at       = CURRENT_TIMESTAMP,
       resolved_at      = COALESCE($12, resolved_at),
       closed_at        = COALESCE($13, closed_at),
-      client_id        = COALESCE($14, client_id)
-     
-    WHERE ticket_id = $15 
+      client_id        = COALESCE($14, client_id),
+      approver_email   = COALESCE($15, approver_email)
+    WHERE ticket_id = $16
     RETURNING *
   `;
-// wing_id          = COALESCE($15, wing_id),
   const values = [
     data.subject       || null,
     data.priority      || null,
@@ -461,13 +511,37 @@ exports.updateTicket = async (id, data) => {
     resolved_at,
     closed_at,
     client_id          || null,
-    //  wing_id          || null,  
+    approver_email     || null,
     id
   ];
 
   const { rows } = await db.query(query, values);
   return rows[0];
 };
+
+// ─── TEAM MANAGERS — the people who HEAD a ticket's team at its location ───────
+// Real users with role='manager' for the ticket's (assigned team + location +
+// org), set via the Role + Team fields on the admin user form. They are NOTIFIED
+// on creation and on approval (to assign the ticket) — they are deliberately NOT
+// the approver. The approver ("reporting manager") comes from the approver
+// registry (see createTicket, README §6). A team may have MANY managers; all are
+// returned so every one is notified.
+const getTeamManagers = async (teamId, locationId, orgId) => {
+  if (!teamId || !locationId) return [];
+  const { rows } = await db.query(
+    `SELECT register_id, email_id, first_name, last_name
+       FROM T_USER
+      WHERE LOWER(TRIM(role)) = 'manager'
+        AND team_id = $1
+        AND location_id = $2
+        AND ($3::int IS NULL OR org_id = $3)
+        AND email_id IS NOT NULL
+      ORDER BY register_id`,
+    [teamId, locationId, orgId || null]
+  );
+  return rows;
+};
+exports.getTeamManagers = getTeamManagers;
 
 // ─── RATE TICKET (requester feedback; visible to manager/admin) ───────────────
 exports.rateTicket = async (id, rating, experience) => {

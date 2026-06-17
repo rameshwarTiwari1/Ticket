@@ -6,6 +6,7 @@ const {
   sendTicketAssignedMail,
 } = require('../utils/mailer');
 const { createNotification } = require('../utils/notification');
+const { isApproverForLocation } = require('../models/approverModel');
 const access = require('../utils/access');
 const { canTransition, STATUS } = require('../constants/roles');
 const { checkSlaBreaches } = require('../utils/slaChecker');
@@ -60,7 +61,21 @@ exports.create = async (req, res) => {
     // req.body.org_name always has the value the Angular frontend sent.
     const orgName = req.body.org_name || '';
 
-    await sendTicketCreatedMail(ticket, creatorEmail, orgName);
+    // ── Resolve the TEAM MANAGER (head of the ticket's team at its location) and
+    //    notify them on creation — NOT the approver/reporting manager (README §10). ─
+    const managers = await Ticket.getTeamManagers(
+      ticket.assigned_team_id, ticket.location_id, ticket.org_id
+    );
+    const managerEmails = managers.map((m) => m.email_id).filter(Boolean);
+
+    await sendTicketCreatedMail(ticket, creatorEmail, orgName, managerEmails);
+
+    for (const m of managers) {
+      await createNotification(
+        m.register_id, ticket.ticket_id,
+        `New ticket ${ticket.ticket_number} raised for your team (pending approval)`
+      );
+    }
 
     activity.logReq(req, 'TICKET_CREATED', {
       ticket_id: ticket.ticket_id,
@@ -126,8 +141,22 @@ exports.handleApproval = async (req, res) => {
     // 5. Get creator email (available from SELECT JOIN as creator_email)
     const creatorEmail = ticket.creator_email || null;
 
-    // 6. Get IT Service Team emails
-    const itTeamEmails = getItTeamEmails(ticket.org_name);
+    // 6. Notify the TEAM MANAGER (head of the ticket's team) — they assign the
+    //    ticket once approved. This is the real team manager from the DB, NOT the
+    //    approver/reporting manager who just clicked the link (README §10).
+    const managers = await Ticket.getTeamManagers(
+      ticket.assigned_team_id, ticket.location_id, ticket.org_id
+    );
+    const itTeamEmails = managers.map((m) => m.email_id).filter(Boolean);
+
+    if (action === 'approved') {
+      for (const m of managers) {
+        await createNotification(
+          m.register_id, ticket.ticket_id,
+          `Ticket ${ticket.ticket_number} was approved — please assign it to a team member`
+        );
+      }
+    }
 
     // 7. Send decision emails — pass org_name explicitly (available here from JOIN)
     await sendApprovalDecisionMail(
@@ -270,6 +299,33 @@ exports.update = async (req, res) => {
     const existing = await Ticket.getTicketById(req.params.id);
     if (!existing) return res.status(404).json({ message: 'Ticket not found' });
 
+    // ── Owner editing their OWN ticket while it is still Pending Approval ────────
+    // A requester may fix the details of their ticket (and re-pick the approver)
+    // up until it is approved. They may NEVER change routing/assignment/status —
+    // those stay with the manager/admin. We strip those fields here so the owner
+    // path can never escalate, then fall through to the normal checks.
+    const isOwner = Number(existing.created_by_id) === Number(req.user.userId);
+    const isPendingApproval =
+      (existing.status_name || '').toLowerCase() === 'pending approval' &&
+      (existing.approval_status || '').toLowerCase() === 'pending';
+    const ownerEditingPending =
+      isOwner && isPendingApproval && !access.canEditTicket(req.user, existing);
+
+    if (ownerEditingPending) {
+      // If the owner picks an approver, it must be a valid approver for the
+      // ticket's (immutable) location — otherwise reject the change.
+      if (req.body.approver_email &&
+          !(await isApproverForLocation(req.body.approver_email, existing.location_id))) {
+        return res.status(400).json({
+          message: 'The selected approver is not valid for this ticket\'s location.',
+          code: 'BAD_APPROVER',
+        });
+      }
+      // Owner can never touch routing / assignment / lifecycle of their ticket.
+      ['team_name', 'assigned_to_name', 'assigned_to_email', 'status_name',
+       'org_name', 'location_id', 'created_at_location_id'].forEach((f) => delete req.body[f]);
+    }
+
     // ── Permission + lifecycle enforcement (README §3, §4) ──────────────────────
     // The edit form re-sends EVERY field (including disabled ones via getRawValue),
     // so we only treat a field as "touched" when its value actually DIFFERS from
@@ -295,7 +351,7 @@ exports.update = async (req, res) => {
           message: `Invalid status transition: ${existing.status_name || 'New'} → ${req.body.status_name}`,
         });
     }
-    if (touchingManageFields && !access.canEditTicket(req.user, existing))
+    if (touchingManageFields && !access.canEditTicket(req.user, existing) && !ownerEditingPending)
       return res.status(403).json({ message: 'You are not allowed to edit this ticket' });
 
     // If this edit (re)assigns to a PERSON, that person must belong to the
@@ -345,7 +401,7 @@ exports.update = async (req, res) => {
     res.status(200).json({ message: 'Ticket updated successfully', ticket });
   } catch (error) {
     console.error('UPDATE TICKET ERROR:', error.message);
-    res.status(500).json({ message: error.message });
+    res.status(error.status || 500).json({ message: error.message, code: error.code || 'SERVER_ERROR' });
   }
 };
 

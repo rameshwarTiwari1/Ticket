@@ -233,6 +233,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   commentError        = '';
   isOwnerOfSelectedTicket = false;
   canCommentOnTicket      = false;
+  /* True while a requester edits their OWN ticket that is still Pending Approval
+     (drives field-locking + the approver dropdown in the edit form). */
+  editingAsOwnerPending   = false;
 
   /* ---------------- NOTIFICATIONS ---------------- */
   notifications:          any[] = [];
@@ -310,11 +313,26 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   get canEditTickets(): boolean { return this.isAdmin || this.isSiteManager || this.isEmployee; }
 
   /* Per-ticket edit right: admin/manager (their scoped list) always; an employee
-     only on tickets ASSIGNED to them (matches backend canWorkTicket). */
+     only on tickets ASSIGNED to them (matches backend canWorkTicket); and the
+     OWNER while the ticket is still Pending Approval (matches backend
+     ownerEditingPending — they may fix details/approver before approval). */
   canEditRow(ticket: MyTicket): boolean {
     if (this.isAdmin || this.isSiteManager) return true;
     if (this.isEmployee) return Number((ticket as any).assigned_to_id) === Number(this.userId);
-    return false;
+    return this.canOwnerEditPending(ticket);
+  }
+
+  /* Is this MY ticket? (prefer the id, fall back to the name for list rows). */
+  private isOwnTicket(ticket: MyTicket): boolean {
+    const name = `${this.currentUser?.firstName} ${this.currentUser?.lastName}`;
+    return Number((ticket as any).created_by_id) === Number(this.userId) ||
+           ticket.created_by_name === name;
+  }
+
+  /* Owner may edit their own ticket only while it is Pending Approval. */
+  canOwnerEditPending(ticket: MyTicket): boolean {
+    return this.isOwnTicket(ticket) &&
+           (ticket.status_name || '').toLowerCase() === 'pending approval';
   }
 
   /* Status choices for the edit dropdown: the current status plus its valid next
@@ -729,7 +747,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private initTicketForm(currentUser: User): void {
     this.ticketForm = this.fb.group({
       subject:          ['', Validators.required],
-      email_id:         ['', [Validators.required]],
+      // Legacy approver-fallback field — now hidden in the UI. The approver is
+      // resolved from the approver registry ("Send approval to"), so this is no
+      // longer required. Kept as a control only for backward compatibility.
+      email_id:         [''],
       created_by_name:  [{ value: `${currentUser.firstName} ${currentUser.lastName}`, disabled: true }],
       issue_name:       ['', Validators.required],
       team_name:        [{ value: currentUser.teamName || '', disabled: true }],
@@ -1078,8 +1099,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   editTicket(ticket: MyTicket): void {
-    // Permission check: Employees cannot edit tickets they don't own; Users cannot edit at all
-    if (this.isUser) return;
+    // Requesters may edit ONLY their own ticket while it is still Pending Approval.
+    if (this.isUser && !this.canOwnerEditPending(ticket)) return;
 
     // Location check: non-Admin users cannot edit tickets from other locations
     if (!this.isAdmin) {
@@ -1140,11 +1161,26 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     const isOwner = ticket.created_by_name === currentUserName;
     if (!isOwner && !this.isEmployee) { this.ticketForm.get('description')?.disable(); }
     else if (!this.isEmployee)         { this.ticketForm.get('description')?.enable(); }
+
+    // ── Requester editing their OWN ticket while Pending Approval ───────────────
+    // Allow content fields + re-picking the approver; lock routing/assignment/
+    // status (the server enforces the same restriction).
+    this.editingAsOwnerPending =
+      this.canOwnerEditPending(ticket) && !this.canManageTickets && !this.isEmployee;
+    if (this.editingAsOwnerPending) {
+      this.ticketForm.get('status_name')?.disable();
+      this.ticketForm.get('assigned_to_name')?.disable();
+      this.ticketForm.get('team_name')?.disable();
+      this.ticketForm.get('description')?.enable();
+      this.loadApproverOptions();
+      this.ticketForm.patchValue({ approver_email: (ticket as any).approver_email || '' });
+    }
   }
 
   closeNewTicketForm(): void {
     this.showNewTicketForm              = false;
     this.editingTicket                  = null;
+    this.editingAsOwnerPending          = false;
     this.selectedTicket                 = null;
     this.selectedFile                   = null;
     this.errorMessage                   = '';

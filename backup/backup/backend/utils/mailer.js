@@ -151,7 +151,7 @@ const buildTicketHtml = (heading, ticket, assignedLabel) => `
 // @param orgName      — EXPLICITLY passed from the controller (req.body.org_name)
 //                       ALWAYS use this — never rely on ticket.org_name alone.
 //
-const sendTicketCreatedMail = async (ticket, creatorEmail, orgName) => {
+const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmails = []) => {
   try {
     // ── Use explicit orgName; fallback to ticket.org_name only as last resort ──
     const resolvedOrg = (orgName || ticket.org_name || '').toLowerCase().trim();
@@ -164,10 +164,15 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName) => {
 
     logger.info(`📨 sendTicketCreatedMail → org: "${resolvedOrg}" | transporter: "${tKey}" | from: "${tFrom}"`);
 
-    // ── Look up IT team route ─────────────────────────────────────────────────
-    const orgRoutes = teamEmails[resolvedOrg];
-    const route     = orgRoutes ? orgRoutes[assignedTo] : null;
-    if (!route) logger.warn(`⚠️ No mail route for org="${resolvedOrg}", team="${assignedTo}"`);
+    // ── Team manager recipients (the HEAD of the ticket's team — e.g. the head
+    //    of IT Service — resolved from the DB by the controller). This REPLACES
+    //    the old hardcoded distribution list. ──────────────────────────────────
+    const teamMgrList = (managerEmails || []).filter(Boolean);
+    if (!teamMgrList.length) {
+      logger.warn(`⚠️ No team manager found for ticket ${ticket.ticket_number} ` +
+                  `(team=${ticket.assigned_team_id}, location=${ticket.location_id}). ` +
+                  `Team-manager notice NOT sent.`);
+    }
 
     // ── Build approval button URLs ────────────────────────────────────────────
     const baseUrl    = process.env.APP_BASE_URL || `http://192.168.5.39:${process.env.PORT || 3008}`;
@@ -210,11 +215,11 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName) => {
       </div>
     `;
 
-    // ── Email HTML: info-only (for IT Service Team) ───────────────────────────
+    // ── Email HTML: info-only (for the TEAM MANAGER / head of the team) ───────
     const itTeamHtml = `
       <div style="font-family:sans-serif;font-size:14px;max-width:600px;">
-        <h3 style="color:#1a1a2e;">New Ticket Raised — Pending Approval</h3>
-        <p>A new ticket has been raised. It is currently <b>pending approval</b> from <b>${approverDisplay}</b>. You will be notified once a decision is made.</p>
+        <h3 style="color:#1a1a2e;">New Ticket Raised for Your Team — Pending Approval</h3>
+        <p>A new ticket has been raised for your team. It is currently <b>pending approval</b> from <b>${approverDisplay}</b>. Once approved, you will be able to assign it to a member of your team.</p>
         <table style="border-collapse:collapse;width:100%;font-size:14px;">
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Ticket No</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.ticket_number}</td></tr>
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Subject</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.subject}</td></tr>
@@ -261,14 +266,14 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName) => {
                   `ticket will stay Pending Approval until an approver is added.`);
     }
 
-    // ── STEP 2: Send info mail to IT Service Team ─────────────────────────────
-    if (route) {
+    // ── STEP 2: Notify the TEAM MANAGER (head of the ticket's team) ───────────
+    if (teamMgrList.length) {
       await sendMail(
-        route.to.join(','),
+        teamMgrList.join(','),
         `New Ticket Pending Approval: ${ticket.ticket_number} | ${ticket.subject}`,
-        itTeamHtml, [], route.from, route.transporter
+        itTeamHtml, [], tFrom, tKey
       );
-      logger.info(`✅ IT Team info mail sent via "${route.transporter}" → ${route.to.join(', ')}`);
+      logger.info(`✅ Team-manager notice sent via "${tKey}" → ${teamMgrList.join(', ')}`);
     }
 
     // ── STEP 3: Send confirmation to ticket creator ───────────────────────────

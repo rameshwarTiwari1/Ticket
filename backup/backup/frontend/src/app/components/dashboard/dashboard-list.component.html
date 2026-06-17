@@ -595,8 +595,9 @@
           </span>
         </div>
 
-        <!-- Approver — filtered to the creator's location (blank = auto-select) -->
-        <div class="form-group" *ngIf="!editingTicket">
+        <!-- Approver — filtered to the creator's location (blank = auto-select).
+             Shown on create, and when the owner edits their Pending-Approval ticket. -->
+        <div class="form-group" *ngIf="!editingTicket || editingAsOwnerPending">
           <label>Send approval to</label>
           <select formControlName="approver_email">
             <option value="">Auto-select (recommended)</option>
@@ -658,8 +659,11 @@
           <input type="text" formControlName="desk_number" placeholder="Enter desk number e.g. A-101" />
         </div>
 
-        <!-- Email ID (CC) with autocomplete -->
-        <div class="form-group email-id-field">
+        <!-- Email ID (In TO:-) — HIDDEN. This was the legacy way to choose who
+             approves a ticket; the approver now comes from the approver registry
+             ("Send approval to" above). Kept in the DOM (hidden) so the form
+             control and its autocomplete wiring stay intact. -->
+        <div class="form-group email-id-field" style="display:none;">
           <label>Email ID (In TO:-)<span class="required-star">*</span></label>
           <input type="text" formControlName="email_id" placeholder="Type to search email..." autocomplete="off" />
           <ul class="email-suggestions" *ngIf="showEmailSuggestionsForEmailId">
