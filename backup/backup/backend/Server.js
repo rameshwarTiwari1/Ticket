@@ -1,6 +1,7 @@
 require("dotenv").config();
 const app = require("./App");
 const { checkSlaBreaches, autoCloseResolvedTickets } = require("./utils/slaChecker");
+const { runAutoAssign } = require("./utils/autoAssign");
 
 const PORT = process.env.PORT || 5000;
 
@@ -21,4 +22,20 @@ app.listen(PORT, () => {
   };
   setInterval(runSla, intervalMs);
   runSla(); // run once at startup
+
+  // Shift-based auto-assignment (Airoli / Hansa Direct IT only). Polls the
+  // external roster and assigns/reassigns scoped tickets. Disable with
+  // AUTO_ASSIGN_ENABLED=false; interval via AUTO_ASSIGN_INTERVAL_MS (default 1m).
+  if (process.env.AUTO_ASSIGN_ENABLED !== "false") {
+    const autoAssignMs = Number(process.env.AUTO_ASSIGN_INTERVAL_MS) || 60 * 1000;
+    const runAuto = async () => {
+      try {
+        await runAutoAssign();
+      } catch (err) {
+        console.error("Auto-assign job failed:", err.message);
+      }
+    };
+    setInterval(runAuto, autoAssignMs);
+    runAuto(); // run once at startup
+  }
 });

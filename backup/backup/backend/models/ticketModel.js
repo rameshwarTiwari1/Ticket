@@ -644,3 +644,130 @@ const getTicketsByAssignedTeam = async (teamName, orgId, locationId = null) => {
 
 exports.getTicketsByAssignedTeam = getTicketsByAssignedTeam;
 
+// ─── SHIFT-BASED AUTO-ASSIGNMENT (Airoli / Hansa Direct IT only) ──────────────
+// These helpers back utils/autoAssign.js. They deliberately do NOT use the
+// strict team+location membership check that the manual assign path enforces —
+// for this feature the external shift roster (not t_user.team_id) is the source
+// of truth for who handles the desk. See the design spec.
+
+// Resolve our app team_id for a team name AT a specific location. team_id is a
+// SERIAL that differs between environments (e.g. "IT Services @ Airoli" = 24 in
+// prod, 10 in a fresh seed), so rules name the team and resolve it at runtime.
+exports.resolveTeamId = async (teamName, locationId) => {
+  if (!teamName || !locationId) return null;
+  const { rows } = await db.query(
+    `SELECT team_id FROM t_teams
+      WHERE LOWER(TRIM(team_name)) = LOWER(TRIM($1)) AND location_id = $2
+      LIMIT 1`,
+    [teamName, locationId]
+  );
+  return rows[0]?.team_id ?? null;
+};
+
+// Approved + still-unassigned tickets in a rule's scope (candidates for a fresh
+// auto-assignment).
+exports.getAutoAssignableTickets = async (rule) => {
+  const { rows } = await db.query(
+    `SELECT ticket_id, ticket_number, subject, created_by, org_id, location_id, assigned_team_id
+       FROM T_TICKETS
+      WHERE location_id = $1
+        AND org_id = $2
+        AND assigned_team_id = $3
+        AND assigned_to IS NULL
+        AND LOWER(TRIM(COALESCE(approval_status, ''))) = 'approved'
+      ORDER BY created_at ASC`,
+    [rule.locationId, rule.orgId, rule.appTeamId]
+  );
+  return rows;
+};
+
+// Assigned + In-Progress tickets in a rule's scope (candidates for off-shift
+// reassignment). Resolved/closed/rejected tickets are excluded.
+exports.getReassignableTickets = async (rule) => {
+  const { rows } = await db.query(
+    `SELECT t.ticket_id, t.ticket_number, t.subject, t.created_by, t.assigned_to,
+            t.org_id, t.location_id, t.assigned_team_id
+       FROM T_TICKETS t
+       LEFT JOIN ticket_status s ON s.status_id = t.status_id
+      WHERE t.location_id = $1
+        AND t.org_id = $2
+        AND t.assigned_team_id = $3
+        AND t.assigned_to IS NOT NULL
+        AND LOWER(TRIM(COALESCE(s.status_name, ''))) = 'in progress'
+        AND t.resolved_at IS NULL
+        AND t.closed_at IS NULL
+      ORDER BY t.created_at ASC`,
+    [rule.locationId, rule.orgId, rule.appTeamId]
+  );
+  return rows;
+};
+
+// Map register_id -> count of that user's open (In Progress) tickets, used for
+// least-loaded selection. Returns a plain object; ids with no open tickets are
+// simply absent (treated as 0 by the caller).
+exports.countOpenByAssignee = async (userIds) => {
+  if (!Array.isArray(userIds) || userIds.length === 0) return {};
+  const { rows } = await db.query(
+    `SELECT t.assigned_to AS register_id, COUNT(*)::int AS open_count
+       FROM T_TICKETS t
+       LEFT JOIN ticket_status s ON s.status_id = t.status_id
+      WHERE t.assigned_to = ANY($1::int[])
+        AND LOWER(TRIM(COALESCE(s.status_name, ''))) = 'in progress'
+        AND t.resolved_at IS NULL
+        AND t.closed_at IS NULL
+      GROUP BY t.assigned_to`,
+    [userIds]
+  );
+  const out = {};
+  for (const r of rows) out[r.register_id] = r.open_count;
+  return out;
+};
+
+// Resolve a roster display name ("nilesh mishra") to a t_user row, scoped to the
+// org only (NOT team/location — the roster owns "who", t_user only supplies the
+// register_id). Returns the single match, or null if 0 or >1 match (ambiguous).
+exports.resolveUserByRosterName = async (rosterName, orgId) => {
+  if (!rosterName || !rosterName.trim()) return null;
+  const { rows } = await db.query(
+    `SELECT register_id, first_name, last_name, email_id
+       FROM T_USER
+      WHERE LOWER(TRIM(COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))) = LOWER(TRIM($1))
+        AND org_id = $2`,
+    [rosterName, orgId]
+  );
+  if (rows.length !== 1) return null; // 0 = no match, >1 = ambiguous → skip safely
+  return rows[0];
+};
+
+// Assign (or reassign) a ticket to a user WITHOUT the manual-path membership
+// check. Sets status → In Progress. Mirrors exports.assignTicket's write but is
+// only ever called by the trusted auto-assign job.
+exports.autoAssignTicket = async (ticketId, userId, remark) => {
+  const assigneeRow = await db.query(
+    `SELECT register_id, first_name, last_name, email_id FROM T_USER WHERE register_id = $1`,
+    [userId]
+  );
+  const assignee = assigneeRow.rows[0];
+  if (!assignee) throw new Error('Assigned user not found');
+
+  const status_id = await getIdByName('ticket_status', 'status_id', 'status_name', 'In Progress');
+
+  const { rows } = await db.query(
+    `UPDATE T_TICKETS SET
+       assigned_to = $1,
+       status_id   = COALESCE($2, status_id),
+       remark      = COALESCE($3, remark),
+       updated_at  = CURRENT_TIMESTAMP
+     WHERE ticket_id = $4
+     RETURNING *`,
+    [userId, status_id || null, remark || null, ticketId]
+  );
+  if (!rows[0]) throw new Error('Ticket not found');
+
+  return {
+    ...rows[0],
+    assignee_name: `${assignee.first_name} ${assignee.last_name}`,
+    assignee_email: assignee.email_id,
+  };
+};
+
