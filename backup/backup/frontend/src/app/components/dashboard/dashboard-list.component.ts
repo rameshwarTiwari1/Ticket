@@ -1167,7 +1167,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       additional_email: ticket.additional_email,
       attachment:       ticket.attachment,
       client_name:      ticket.client_name || '',
-      wing_name:        (ticket as any).wing_name    || '',
+      // API returns wing_id (not wing_name) → resolve the name so the dropdown
+      // prefills on edit, same as the detail view (Task 7).
+      wing_name:        this.wings.find(w => w.wing_id === (ticket as any).wing_id)?.wing_name
+                          || (ticket as any).wing_name || '',
       desk_number:      (ticket as any).desk_number  || '',
     });
 
