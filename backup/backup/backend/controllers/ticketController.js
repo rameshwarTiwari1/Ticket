@@ -5,7 +5,9 @@ const {
   sendApprovalDecisionMail,
   sendTicketAssignedMail,
   sendTicketReopenedMail,
+  sendTicketEventMail,
 } = require('../utils/mailer');
+const { buildTicketRecipients } = require('../utils/recipients');
 const { createNotification } = require('../utils/notification');
 const { isApproverForLocation } = require('../models/approverModel');
 const access = require('../utils/access');
@@ -396,72 +398,32 @@ exports.update = async (req, res) => {
         description: `Status: ${existing.status_name} → ${req.body.status_name}`,
       });
     }
-    //Reopened Email to send the notification for each email
-    // ── Reopen notification — email everyone involved ──────────────────────
-      if ((req.body.status_name || '').toLowerCase() === 'reopened') {
-        try {
-          // Creator email
-          const creatorRow = await db.query(
-            `SELECT email_id FROM T_USER WHERE register_id = $1`,
-            [existing.created_by_id]
-          );
-          const creatorEmail = creatorRow.rows[0]?.email_id || null;
+    // ── Status-event notification (spec Task 2) ─────────────────────────────────
+    // One email to the STANDARD recipient set (raiser + assignee + assignee's
+    // team manager + org admins + team mailbox + additional CCs) for every
+    // lifecycle change: In Progress / On Hold / Resolved / Closed / Reopened.
+    // Never fails the update if mail errors.
+    if (changingStatus) {
+      try {
+        const fresh      = await Ticket.getTicketById(req.params.id);
+        const recipients = await buildTicketRecipients(fresh);
+        await sendTicketEventMail(fresh, req.body.status_name, recipients);
 
-          // Assignee email (engineer who was working the ticket)
-          let assigneeEmail = null;
-          if (existing.assigned_to_id) {
-            const assigneeRow = await db.query(
-              `SELECT email_id FROM T_USER WHERE register_id = $1`,
-              [existing.assigned_to_id]
-            );
-            assigneeEmail = assigneeRow.rows[0]?.email_id || null;
-          }
-
-          // Team managers
-          const managers = await Ticket.getTeamManagers(
-            existing.assigned_team_id,
-            existing.location_id,
-            existing.org_id
-          );
-          const managerEmails = managers.map(m => m.email_id).filter(Boolean);
-
-          // org_name for transporter selection
-          const orgRow = await db.query(
-            `SELECT org_name FROM T_ORGANIZATION WHERE org_id = $1`,
-            [existing.org_id]
-          );
-          const orgName = orgRow.rows[0]?.org_name || '';
-
-          await sendTicketReopenedMail(
-            existing,       // has ticket_number, subject, priority, issue_name etc.
-            creatorEmail,
-            orgName,
-            managerEmails,
-            assigneeEmail
-          );
-
-          // In-app notifications
-          if (existing.assigned_to_id) {
-            await createNotification(
-              existing.assigned_to_id,
-              Number(req.params.id),
-              `Ticket ${existing.ticket_number} has been reopened by the requester`
-            );
-          }
-          for (const m of managers) {
-            await createNotification(
-              m.register_id,
-              Number(req.params.id),
-              `Ticket ${existing.ticket_number} has been reopened`
-            );
-          }
-        } catch (mailErr) {
-          console.error('REOPEN MAIL ERROR:', mailErr.message);
-          // Don't fail the update response if mail errors
+        // In-app notifications for the people involved (skip the actor).
+        const notifyIds = new Set();
+        if (fresh.created_by_id)  notifyIds.add(Number(fresh.created_by_id));
+        if (fresh.assigned_to_id) notifyIds.add(Number(fresh.assigned_to_id));
+        const managers = await Ticket.getTeamManagers(fresh.assigned_team_id, fresh.location_id, fresh.org_id);
+        managers.forEach((m) => notifyIds.add(Number(m.register_id)));
+        notifyIds.delete(Number(req.user.userId));
+        for (const uid of notifyIds) {
+          await createNotification(uid, Number(req.params.id),
+            `Ticket ${fresh.ticket_number} is now ${fresh.status_name}`);
         }
+      } catch (mailErr) {
+        console.error('STATUS EVENT NOTIFY ERROR:', mailErr.message);
       }
-    
-    
+    }
 
     res.status(200).json({ message: 'Ticket updated successfully', ticket });
   } catch (error) {
@@ -584,13 +546,19 @@ await createNotification(
   'Your ticket has been assigned'
 );
 
-    const creatorRow = await db.query(
-      `SELECT email_id FROM T_USER WHERE register_id = $1`,
-      [existing.created_by_id]
-    );
-    const creatorEmail  = creatorRow.rows[0]?.email_id || null;
     const updatedTicket = await Ticket.getTicketById(req.body.ticket_id);
-    await sendTicketAssignedMail(updatedTicket, result.assignee_email, creatorEmail);
+    // Standard recipient set (spec Task 2.1) + the PREVIOUS assignee, so a
+    // reassignment notifies BOTH the old and new engineer (spec Task 2.3).
+    const recipients = await buildTicketRecipients(updatedTicket);
+    const prevId = existing.assigned_to_id;
+    if (prevId && Number(prevId) !== Number(req.body.assigned_to)) {
+      const prevRow   = await db.query(`SELECT email_id FROM T_USER WHERE register_id = $1`, [prevId]);
+      const prevEmail = (prevRow.rows[0]?.email_id || '').toLowerCase();
+      if (prevEmail && !recipients.to.includes(prevEmail)) recipients.to.push(prevEmail);
+      await createNotification(prevId, req.body.ticket_id,
+        `Ticket ${updatedTicket.ticket_number} has been reassigned to someone else`);
+    }
+    await sendTicketEventMail(updatedTicket, 'reassigned', recipients);
 
     activity.logReq(req, 'TICKET_ASSIGNED', {
       ticket_id: Number(req.body.ticket_id),

@@ -595,6 +595,48 @@ const sendTicketReopenedMail = async (ticket, creatorEmail, orgName, managerEmai
     logger.error(`❌ sendTicketReopenedMail error: ${err.message}`);
   }
 };
+// ─── GENERIC TICKET-EVENT MAIL (spec Task 2) ──────────────────────────────────
+// One email per lifecycle event to the standard recipient set (built by
+// utils/recipients.buildTicketRecipients and passed in as `recipients`).
+const EVENT_META = {
+  in_progress: { label: 'In Progress', note: 'Your ticket is now being worked on.' },
+  on_hold:     { label: 'On Hold',     note: 'Your ticket has been placed on hold.' },
+  resolved:    { label: 'Resolved',    note: 'Your ticket has been resolved — please confirm or it will auto-close.' },
+  closed:      { label: 'Closed',      note: 'Your ticket has been closed.' },
+  reopened:    { label: 'Reopened',    note: 'This ticket has been reopened and will be worked again.' },
+  reassigned:  { label: 'Reassigned',  note: 'This ticket has been reassigned.' },
+};
+
+const sendTicketEventMail = async (ticket, event, recipients) => {
+  try {
+    if (!recipients || !Array.isArray(recipients.to) || recipients.to.length === 0) {
+      logger.warn(`sendTicketEventMail: no recipients for ${ticket?.ticket_number} (${event})`);
+      return;
+    }
+    const key  = (event || '').toLowerCase().replace(/\s+/g, '_');
+    const meta = EVENT_META[key] || { label: ticket.status_name || 'Updated', note: 'Your ticket has been updated.' };
+    const subject = `Ticket ${meta.label}: ${ticket.ticket_number} | ${ticket.subject}`;
+    const html = `
+      <div style="font-family:sans-serif;font-size:14px;max-width:600px;">
+        <h3>Ticket ${meta.label}</h3>
+        <p>${meta.note}</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;">
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Ticket No</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.ticket_number}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Subject</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.subject}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Status</b></td><td style="padding:8px;border:1px solid #ddd;">${meta.label}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Raised By</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.created_by_name || 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Assigned To</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.assigned_to_name || 'N/A'}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Priority</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.priority || 'N/A'}</td></tr>
+        </table>
+        <p style="color:#666;font-size:13px;margin-top:12px;">Log in to the portal to view full ticket details.</p>
+      </div>`;
+    await sendMail(recipients.to.join(','), subject, html, [], recipients.from, recipients.transporterKey);
+    logger.info(`✅ ${meta.label} event mail via "${recipients.transporterKey}" → ${recipients.to.join(', ')}`);
+  } catch (err) {
+    logger.error(`sendTicketEventMail error: ${err.message}`);
+  }
+};
+
 module.exports = {
   sendMail,
   sendOtpMail,
@@ -604,5 +646,6 @@ module.exports = {
   sendTicketAssignedMail,
   sendApprovalDecisionMail,
   sendTicketReopenedMail,
+  sendTicketEventMail,
   getTeamEmailConfig
 };
