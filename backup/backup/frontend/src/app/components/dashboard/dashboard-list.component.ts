@@ -44,8 +44,9 @@ import {
 import { OrganizationService } from '../../services/organization.service';
 import { environment } from '../../environments/environment';
 import { CommentService } from '../../services/comment.service';
-import { TicketComment, Approver } from '../../models/Models';
+import { TicketComment, Approver, AppNotification } from '../../models/Models';
 import { ApproverService } from '../../services/approver.service';
+import { NotificationService } from '../../services/notification.service';
 import { ToastService } from '../../services/toast.service';
 import { ConfirmService } from '../../services/confirm.service';
 import { ActivityService, ActivityLog } from '../../services/activity.service';
@@ -194,6 +195,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   searchTerm         = '';
   showDropdown       = false;
   notificationCount  = 0;
+  notifications: AppNotification[] = [];
+  showNotifications  = false;
   private sub        = new Subscription();
 
   /* ---------------- TICKET FORM ---------------- */
@@ -238,11 +241,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
      (drives field-locking + the approver dropdown in the edit form). */
   editingAsOwnerPending   = false;
 
-  /* ---------------- NOTIFICATIONS ---------------- */
-  notifications:          any[] = [];
-  unreadNotifications     = 0;
-  showNotificationDropdown = false;
-
   /* ---------------- PAGINATION ---------------- */
   selectedEntries   = 6;
   currentPage       = 1;
@@ -269,6 +267,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     private organizationService: OrganizationService,
     private commentService: CommentService,
     private approverService: ApproverService,
+    private notificationService: NotificationService,
     private activityService: ActivityService,
     private toast: ToastService,
     private confirm: ConfirmService,
@@ -653,14 +652,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         this.dashboardPagination.page = 1;
         this.ticketsPagination.page   = 1;
 
-        const currentUserName = `${this.currentUser.firstName} ${this.currentUser.lastName}`;
-        const activeStatuses  = ['Open', 'Reopened', 'In Progress'];
-
-        this.notificationCount = this.tickets.filter(t => {
-          const isActive = activeStatuses.includes(t.status_name);
-          if (this.isAdmin || this.isITService) { return t.assigned_to_name === currentUserName && isActive; }
-          return isActive;
-        }).length;
+        // Real in-app notifications drive the bell (spec Task 2 / README §10).
+        this.loadNotifications();
 
         this.ChangeDetectorRef.detectChanges();
       },
@@ -1286,6 +1279,47 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   closeTicketDetails(): void { this.selectedTicket = null; }
 
+  /* ── In-app notifications (bell) — backed by /api/notifications ── */
+  loadNotifications(): void {
+    this.notificationService.list().subscribe({
+      next: (rows) => {
+        this.notifications = rows || [];
+        this.notificationCount = this.notifications.filter(n => !n.is_read).length;
+        this.ChangeDetectorRef.detectChanges();
+      },
+      error: () => { /* non-fatal — leave bell as-is */ },
+    });
+  }
+
+  toggleNotifications(event: Event): void {
+    event.stopPropagation();
+    this.showNotifications = !this.showNotifications;
+    if (this.showNotifications) this.loadNotifications();
+  }
+
+  markNotificationRead(n: AppNotification): void {
+    if (n.is_read) return;
+    this.notificationService.markRead(n.id).subscribe({
+      next: () => {
+        n.is_read = true;
+        this.notificationCount = this.notifications.filter(x => !x.is_read).length;
+        this.ChangeDetectorRef.detectChanges();
+      },
+      error: () => {},
+    });
+  }
+
+  markAllNotificationsRead(): void {
+    this.notificationService.markAllRead().subscribe({
+      next: () => {
+        this.notifications.forEach(n => n.is_read = true);
+        this.notificationCount = 0;
+        this.ChangeDetectorRef.detectChanges();
+      },
+      error: () => {},
+    });
+  }
+
   /* Requester reopens their own Resolved/Closed ticket (README §4). */
   async reopenTicket(): Promise<void> {
     if (!this.selectedTicket) return;
@@ -1875,7 +1909,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!target.closest('.user-dropdown'))          { this.showDropdown = false; }
     if (!target.closest('.email-id-field'))         { this.filteredEmailsForEmailId = []; this.showEmailSuggestionsForEmailId = false; }
     if (!target.closest('.additional-email-field')) { this.filteredEmails = []; this.showEmailSuggestions = false; }
-    if (!target.closest('.notification-dropdown'))  { this.showNotificationDropdown = false; }
+    if (!target.closest('.notification-icon'))      { this.showNotifications = false; }
   }
 
   get filteredWings(): Wing[] {

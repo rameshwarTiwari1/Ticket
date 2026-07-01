@@ -10,12 +10,29 @@
     <i class="fa-solid fa-magnifying-glass"></i>
   </div>
   <div class="right">
-    <!-- <div class="notification-icon">
+    <div class="notification-icon" (click)="toggleNotifications($event)" style="position:relative;cursor:pointer;">
       <i class="fa fa-bell"></i>
       <span *ngIf="notificationCount > 0" class="notification-badge">
         {{ notificationCount }}
       </span>
-    </div> -->
+      <div class="notification-panel" *ngIf="showNotifications" (click)="$event.stopPropagation()"
+           style="position:absolute;right:0;top:34px;width:330px;max-height:420px;overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:1000;text-align:left;color:#111;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #eee;">
+          <b style="font-size:13px;">Notifications</b>
+          <button *ngIf="notificationCount > 0" (click)="markAllNotificationsRead()"
+                  style="border:none;background:none;color:#2563eb;cursor:pointer;font-size:12px;">Mark all read</button>
+        </div>
+        <div *ngIf="notifications.length === 0" style="padding:16px;color:#9ca3af;font-size:13px;text-align:center;">
+          No notifications
+        </div>
+        <div *ngFor="let n of notifications" (click)="markNotificationRead(n)"
+             [style.background]="n.is_read ? '#fff' : '#eff6ff'"
+             style="padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;cursor:pointer;">
+          <div>{{ n.message }}</div>
+          <div style="color:#9ca3af;font-size:11px;margin-top:2px;">{{ n.created_at | date:'dd MMM, hh:mm a' }}</div>
+        </div>
+      </div>
+    </div>
     <div class="user-dropdown">
       <button class="user-trigger" (click)="toggleUserDropdown($event)">
         Welcome, {{ username }}
@@ -341,6 +358,7 @@
             <th>Ticket No</th>
             <th>Priority</th>
             <th>User ID</th>
+            <th *ngIf="isTeamLead">Organization</th>
             <th>Raise Date</th>
             <th>Raise At</th>
             <th>Approval</th>
@@ -384,6 +402,9 @@
 
             <!-- User -->
             <td>{{ ticket.created_by_name }}</td>
+
+            <!-- Organization (Team Leads view across orgs) -->
+            <td *ngIf="isTeamLead">{{ ticket.org_name || 'N/A' }}</td>
 
             <!-- Date -->
             <td>{{ ticket.created_at | date:'dd MMM yyyy' }}</td>
