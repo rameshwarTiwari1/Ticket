@@ -179,6 +179,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   isITService   = false;
   isDBA         = false;
   isSiteManager = false;
+  isTeamLead    = false;   // cross-org, single-team read access (spec Task 8)
   isEmployee    = false;
   isUser        = false;
 
@@ -294,6 +295,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     // UI by team name only produced screens whose actions 403 anyway).
     this.isAdmin       = role === 'admin';
     this.isSiteManager = role === 'manager';                       // a real Manager
+    this.isTeamLead    = role === 'team_lead';                     // cross-org, one team (view)
     this.isEmployee    = role === 'employee';
     this.isUser        = role === 'user' || !role;                 // default to least-privilege
 

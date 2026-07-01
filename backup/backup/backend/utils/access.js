@@ -10,6 +10,7 @@ const { ROLES, norm } = require('../constants/roles');
 
 const isAdmin    = (u) => norm(u?.role) === ROLES.ADMIN;
 const isManager  = (u) => norm(u?.role) === ROLES.MANAGER;
+const isTeamLead = (u) => norm(u?.role) === ROLES.TEAM_LEAD;
 const isEmployee = (u) => norm(u?.role) === ROLES.EMPLOYEE;
 const isUser     = (u) => norm(u?.role) === ROLES.USER;
 
@@ -35,6 +36,20 @@ function ticketVisibilityScope(user, opts = {}) {
   if (isAdmin(user)) {
     if (opts.org_id) return { clause: `t.org_id = ${next(Number(opts.org_id))}`, values };
     return { clause: 'TRUE', values };
+  }
+
+  // TEAM LEAD: every ticket of THEIR team across ALL orgs/locations, plus any
+  // ticket they raised. Team identity is by NAME (team_id is per-location), so an
+  // "IT Services" Team Lead sees IT Services tickets in every org (spec Task 8).
+  if (isTeamLead(user)) {
+    const created = next(user.userId);
+    const teamId  = next(user.team_id);
+    return {
+      clause: `(t.created_by = ${created} OR t.assigned_team_id IN ` +
+              `(SELECT team_id FROM t_teams WHERE LOWER(TRIM(team_name)) = ` +
+              `(SELECT LOWER(TRIM(team_name)) FROM t_teams WHERE team_id = ${teamId})))`,
+      values,
+    };
   }
 
   // MANAGER: their team's tickets (own org + location + team), PLUS any ticket
@@ -91,6 +106,8 @@ function managerOwnsTicket(user, ticket) {
 function canViewTicket(user, ticket) {
   if (!ticket) return false;
   if (isAdmin(user)) return true;
+  if (isTeamLead(user)) return norm(ticket.team_name) === norm(user.team_name)
+      || Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId);
   if (isManager(user)) return managerOwnsTicket(user, ticket)
       || Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId);
   if (isEmployee(user)) {
@@ -138,7 +155,7 @@ function canWorkTicket(user, ticket) {
 }
 
 module.exports = {
-  isAdmin, isManager, isEmployee, isUser,
+  isAdmin, isManager, isTeamLead, isEmployee, isUser,
   canManage, canAdministrate,
   ticketVisibilityScope,
   canViewTicket, canAssignTicket, canEditTicket, canWorkTicket, canSelfAssign,

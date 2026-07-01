@@ -4,10 +4,11 @@
 // =============================================================================
 
 const ROLES = Object.freeze({
-  ADMIN:    'admin',
-  MANAGER:  'manager',
-  EMPLOYEE: 'employee',
-  USER:     'user',
+  ADMIN:     'admin',
+  MANAGER:   'manager',
+  TEAM_LEAD: 'team_lead',   // cross-org, single-team read access (spec Task 8)
+  EMPLOYEE:  'employee',
+  USER:      'user',
 });
 
 // Canonical ticket statuses (see ticket lifecycle, README §4).
