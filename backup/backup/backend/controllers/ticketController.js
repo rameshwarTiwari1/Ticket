@@ -23,20 +23,10 @@ exports.runSlaCheck = async (req, res) => {
   }
 };
 
-// ─── IT SERVICE TEAM EMAILS by org ───────────────────────────────────────────
-// Must match keys in mailer.js teamEmails table (lowercase)
-const IT_TEAM_EMAILS_BY_ORG = {
-  'hansa cequity': ['servicedesk@hansacequity.com'],
-  'hansa direct':  ['helpdesk@hansadirect.com'],
-  'autosense':     ['itchennai@autosenseindia.com'],
-};
+// Team-mailbox routing lives ONLY in utils/mailer.js (getTeamEmailConfig).
+// No hardcoded org/team email addresses in this controller (Task 3).
 
-const getItTeamEmails = (orgName) => {
-  const key = (orgName || '').toLowerCase().trim();
-  return IT_TEAM_EMAILS_BY_ORG[key] || [];
-};
-
-// ─── CREATE 
+// ─── CREATE
 exports.create = async (req, res) => {
   try {
     const attachmentPath = req.file ? req.file.path : null;
