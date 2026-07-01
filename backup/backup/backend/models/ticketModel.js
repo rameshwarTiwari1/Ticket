@@ -526,6 +526,23 @@ exports.updateTicket = async (id, data) => {
   return rows[0];
 };
 
+// ─── REGENERATE APPROVAL TOKEN (spec Task 9) ──────────────────────────────────
+// When a still-Pending-Approval ticket is edited, issue a fresh single-use token
+// so the OLD approval link stops working (it will no longer match any row →
+// handleApproval shows the "expired/superseded" page) and a new approval email
+// can be sent. Keeps approval_status = 'pending'. Returns the new token.
+exports.regenerateApprovalToken = async (ticketId) => {
+  const token = crypto.randomUUID();
+  const { rows } = await db.query(
+    `UPDATE T_TICKETS
+        SET approval_token = $1, approval_status = 'pending', updated_at = CURRENT_TIMESTAMP
+      WHERE ticket_id = $2
+      RETURNING ticket_id, approval_token`,
+    [token, ticketId]
+  );
+  return rows[0] || null;
+};
+
 // ─── TEAM MANAGERS — the people who HEAD a ticket's team at its location ───────
 // Real users with role='manager' for the ticket's (assigned team + location +
 // org), set via the Role + Team fields on the admin user form. They are NOTIFIED

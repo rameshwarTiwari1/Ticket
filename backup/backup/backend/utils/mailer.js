@@ -637,6 +637,47 @@ const sendTicketEventMail = async (ticket, event, recipients) => {
   }
 };
 
+// ─── RE-APPROVAL MAIL (spec Task 9) ───────────────────────────────────────────
+// Sent to the designated approver when a Pending-Approval ticket is edited: the
+// old link is dead, here is a fresh single-use approve/reject link.
+const sendReapprovalMail = async (ticket, orgName) => {
+  try {
+    const approver = ticket.approver_email || ticket.email_id || '';
+    if (!approver) {
+      logger.warn(`re-approval: no approver configured for ${ticket.ticket_number} — mail skipped`);
+      return;
+    }
+    const resolvedOrg = (orgName || ticket.org_name || '').toLowerCase().trim();
+    const tKey  = resolveTransporterKey(resolvedOrg);
+    const tFrom = resolveFromEmail(resolvedOrg);
+    const baseUrl    = process.env.APP_BASE_URL || `http://192.168.5.39:${process.env.PORT || 3008}`;
+    const approveUrl = `${baseUrl}/api/tickets-generate/approve/${ticket.approval_token}?action=approved`;
+    const rejectUrl  = `${baseUrl}/api/tickets-generate/approve/${ticket.approval_token}?action=not_approved`;
+    const html = `
+      <div style="font-family:sans-serif;font-size:14px;max-width:600px;">
+        <h3 style="color:#1a1a2e;">Approval Required — Ticket Updated</h3>
+        <p>Ticket <b>${ticket.ticket_number}</b> was <b>edited by the requester</b>. Your earlier
+           approval link is no longer valid — please review the updated request below.</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:16px;">
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Subject</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.subject}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Raised By</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.created_by_name || 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Priority</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.priority}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Issue</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.issue_name || 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Description</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.description || 'N/A'}</td></tr>
+        </table>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${approveUrl}" style="display:inline-block;padding:12px 32px;background:#16a34a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;margin-right:16px;">✅ Approve</a>
+          <a href="${rejectUrl}"  style="display:inline-block;padding:12px 32px;background:#dc2626;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;">❌ Not Approve</a>
+        </div>
+        <p style="color:#888;font-size:12px;">This link supersedes the previous one and can be used once.</p>
+      </div>`;
+    await sendMail(approver, `Re-approval Required: ${ticket.ticket_number} | ${ticket.subject}`, html, [], tFrom, tKey);
+    logger.info(`✅ Re-approval mail sent via "${tKey}" → ${approver}`);
+  } catch (err) {
+    logger.error(`sendReapprovalMail error: ${err.message}`);
+  }
+};
+
 module.exports = {
   sendMail,
   sendOtpMail,
@@ -647,5 +688,6 @@ module.exports = {
   sendApprovalDecisionMail,
   sendTicketReopenedMail,
   sendTicketEventMail,
+  sendReapprovalMail,
   getTeamEmailConfig
 };

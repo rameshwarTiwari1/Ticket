@@ -6,6 +6,7 @@ const {
   sendTicketAssignedMail,
   sendTicketReopenedMail,
   sendTicketEventMail,
+  sendReapprovalMail,
 } = require('../utils/mailer');
 const { buildTicketRecipients } = require('../utils/recipients');
 const { createNotification } = require('../utils/notification');
@@ -422,6 +423,25 @@ exports.update = async (req, res) => {
         }
       } catch (mailErr) {
         console.error('STATUS EVENT NOTIFY ERROR:', mailErr.message);
+      }
+    }
+
+    // ── Re-approval on pending edit (spec Task 9) ───────────────────────────────
+    // If the ticket is STILL Pending Approval and its content changed (not a
+    // status change), invalidate the old approval link and send a fresh one to
+    // the (possibly newly-picked) approver. The old link then hits the
+    // "expired/superseded" page in handleApproval.
+    const stillPending = (existing.status_name || '').toLowerCase() === 'pending approval'
+      && (existing.approval_status || '').toLowerCase() === 'pending';
+    const contentChanged = touchingManageFields || (req.body.description !== undefined && req.body.description !== null);
+    if (stillPending && contentChanged && !changingStatus) {
+      try {
+        await Ticket.regenerateApprovalToken(req.params.id);
+        const full = await Ticket.getTicketById(req.params.id);
+        console.log(`[re-approval] ${full.ticket_number}: old approval link invalidated, new token issued`);
+        await sendReapprovalMail(full, full.org_name);
+      } catch (e) {
+        console.error('RE-APPROVAL ERROR:', e.message);
       }
     }
 
