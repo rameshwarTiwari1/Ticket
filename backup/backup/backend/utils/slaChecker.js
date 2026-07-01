@@ -9,9 +9,8 @@
 const db = require('../config/db');
 const { createNotification } = require('./notification');
 const { sendMail } = require('./mailer');
-
-const transporterKeyForOrg = (orgName) =>
-  (orgName || '').toLowerCase().includes('hansa cequity') ? 'hc' : 'hd';
+const { buildTicketRecipients } = require('./recipients');
+const Ticket = require('../models/ticketModel');
 
 const checkSlaBreaches = async () => {
   const { rows } = await db.query(`
@@ -56,30 +55,25 @@ const checkSlaBreaches = async () => {
       }
     }
 
-    // Admins of the ticket's org (notes Phase-1 #3: also alert admin).
-    let adminEmails = [];
+    // Email the STANDARD recipient set (spec Task 4 reuses the Task 2.1 builder):
+    // raiser + assignee + assignee's manager + org admins + team mailbox + CCs.
     try {
-      const admins = await db.query(
-        `SELECT email_id FROM t_user WHERE role = 'admin' AND (org_id = $1 OR org_id IS NULL)`,
-        [t.org_id]
-      );
-      adminEmails = admins.rows.map((r) => r.email_id).filter(Boolean);
-    } catch (e) { /* non-fatal */ }
-
-    const recipients = [t.assignee_email, managerEmail, ...adminEmails].filter(Boolean);
-    if (recipients.length) {
-      const html = `
-        <div style="font-family:sans-serif;font-size:14px;">
-          <h3 style="color:#dc2626;">⚠️ SLA Breached</h3>
-          <p>Ticket <b>${t.ticket_number}</b> — ${t.subject} has passed its SLA due time
-             and is still open. Please act immediately.</p>
-        </div>`;
-      await sendMail(
-        recipients.join(','),
-        `SLA Breached: ${t.ticket_number} | ${t.subject}`,
-        html, [], null, transporterKeyForOrg(t.org_name)
-      );
-    }
+      const full = await Ticket.getTicketById(t.ticket_id);
+      const rcpt = full ? await buildTicketRecipients(full) : { to: [] };
+      if (rcpt.to.length) {
+        const html = `
+          <div style="font-family:sans-serif;font-size:14px;">
+            <h3 style="color:#dc2626;">⚠️ SLA Breached</h3>
+            <p>Ticket <b>${t.ticket_number}</b> — ${t.subject} has passed its SLA due time
+               and is still open. Please act immediately.</p>
+          </div>`;
+        await sendMail(
+          rcpt.to.join(','),
+          `SLA Breached: ${t.ticket_number} | ${t.subject}`,
+          html, [], rcpt.from, rcpt.transporterKey
+        );
+      }
+    } catch (e) { console.error('SLA mail error:', e.message); }
   }
   return rows.length;
 };
