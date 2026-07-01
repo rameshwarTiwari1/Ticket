@@ -91,6 +91,7 @@ const fetchRoster = async (rule) => {
       console.error(`roster: unexpected payload from ${url}`);
       return null;
     }
+    // console.log(body.data);
     return body.data;
   } catch (err) {
     console.error(`roster: fetch failed for ${url}: ${err.message}`);
@@ -118,6 +119,8 @@ const fetchOnShiftUsers = async (rule, now = new Date()) => {
     known.push(rosterName.trim().toLowerCase());
     if (!byDay || typeof byDay !== 'object') continue;
     const entry = byDay[keys[0]] || byDay[keys[1]];
+    // console.log("Entry Data of Roaster",entry);
+
     if (entryIsOnShiftNow(entry, nowMin)) {
       onShift.push({ rosterName: rosterName.trim(), userId: entry.userId });
     }

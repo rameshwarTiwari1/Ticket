@@ -13,6 +13,7 @@ const authenticate = async (req, res, next) => {
   if (!authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ message: 'Invalid token format' });
   }
+  
 
   const token = authHeader.split(' ')[1];
 

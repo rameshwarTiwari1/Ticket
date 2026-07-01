@@ -4,6 +4,8 @@ html {
 
 
 
+
+
 .navbar1 {
   display: flex;
   align-items: center;
@@ -1001,7 +1003,7 @@ html {
 }
 
 .assign-btn{
-  width: 120px;
+  width: 100px;
   height: 30px;
   background: #ff6b4a !important;
   color: #fff;
@@ -1009,8 +1011,8 @@ html {
   border-radius: 25px !important;
   padding: 6px 14px;
   font-size: 13px;
-  margin-top: 15px;
-  margin-right: 30px;
+  margin-top: 0px;
+  margin-right: 20px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
@@ -1032,7 +1034,9 @@ html {
 
 /* Button */
 .open-btn {
-  width: auto;
+  /* width: auto; */
+  width: 150px;
+  height: 30px;
   background: #ff6b4a !important;
   color: #fff;
   border: none;
@@ -1062,9 +1066,12 @@ html {
 /* Same base style as open button */
 .edit-btn1,
 .delete-btn1 {
-  padding: 8px 14px;
-  border-radius: 6px;
+  width: 100px;
+  height: 30px;
+  padding: 6px 14px;
+  /* border-radius: 6px; */
   border: none;
+   border-radius: 25px !important;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;

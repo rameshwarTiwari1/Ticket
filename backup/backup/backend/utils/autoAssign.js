@@ -26,6 +26,7 @@ const norm = (s) => String(s || '').trim().toLowerCase();
 // Map on-shift roster people → t_user rows. Unmatched / ambiguous names are
 // dropped with a log (we can't safely assign to an unknown register_id).
 const resolveCandidates = async (onShift, orgId) => {
+  // console.log("Orginazation ID",orgId);
   const out = [];
   for (const p of onShift) {
     const u = await Ticket.resolveUserByRosterName(p.rosterName, orgId);
