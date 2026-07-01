@@ -757,7 +757,7 @@ exports.resolveUserByRosterName = async (rosterName, orgId) => {
   // console.log("Roaster Name",rosterName);
   if (!rosterName || !rosterName.trim()) return null;
   const { rows } = await db.query(
-    `SELECT register_id, first_name, last_name, email_id
+    `SELECT register_id, first_name, last_name, email_id, role
        FROM T_USER
       WHERE LOWER(TRIM(COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))) = LOWER(TRIM($1))
         AND org_id = $2`,
@@ -765,6 +765,62 @@ exports.resolveUserByRosterName = async (rosterName, orgId) => {
   );
   if (rows.length !== 1) return null; // 0 = no match, >1 = ambiguous → skip safely
   return rows[0];
+};
+
+// Transactional self-assign (spec Task 5.4): lock the ticket row and assign ONLY
+// if it is still unassigned, so two simultaneous clicks can't both win. Throws a
+// 409 ALREADY_ASSIGNED if someone grabbed it first.
+exports.selfAssignAtomic = async (ticketId, userId) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT assigned_to FROM T_TICKETS WHERE ticket_id = $1 FOR UPDATE`, [ticketId]
+    );
+    if (!cur.rows[0]) {
+      await client.query('ROLLBACK');
+      const e = new Error('Ticket not found'); e.status = 404; throw e;
+    }
+    if (cur.rows[0].assigned_to) {
+      await client.query('ROLLBACK');
+      const e = new Error('This ticket was just assigned to someone else.');
+      e.status = 409; e.code = 'ALREADY_ASSIGNED'; throw e;
+    }
+    const statusRow = await client.query(
+      `SELECT status_id FROM ticket_status WHERE LOWER(TRIM(status_name)) = 'in progress' LIMIT 1`
+    );
+    const status_id = statusRow.rows[0]?.status_id || null;
+    const { rows } = await client.query(
+      `UPDATE T_TICKETS SET assigned_to = $1, status_id = COALESCE($2, status_id),
+              updated_at = CURRENT_TIMESTAMP
+         WHERE ticket_id = $3 RETURNING *`,
+      [userId, status_id, ticketId]
+    );
+    await client.query('COMMIT');
+    return rows[0];
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+// Per-user shift summary for the shift-ending email (spec Task 5.4): counts of
+// what they worked today. "Reassigned away" is not tracked historically, so we
+// report the actionable buckets we can compute reliably.
+exports.shiftSummaryForUser = async (userId) => {
+  const { rows } = await db.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE LOWER(TRIM(s.status_name)) = 'in progress')                                   AS in_progress,
+       COUNT(*) FILTER (WHERE LOWER(TRIM(s.status_name)) = 'resolved' AND t.resolved_at::date = CURRENT_DATE) AS resolved_today,
+       COUNT(*) FILTER (WHERE LOWER(TRIM(s.status_name)) = 'closed'   AND t.closed_at::date   = CURRENT_DATE) AS closed_today
+     FROM T_TICKETS t
+     LEFT JOIN ticket_status s ON s.status_id = t.status_id
+     WHERE t.assigned_to = $1`,
+    [userId]
+  );
+  return rows[0] || { in_progress: 0, resolved_today: 0, closed_today: 0 };
 };
 
 // Assign (or reassign) a ticket to a user WITHOUT the manual-path membership

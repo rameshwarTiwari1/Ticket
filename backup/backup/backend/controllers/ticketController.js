@@ -463,7 +463,9 @@ exports.selfAssign = async (req, res) => {
     if (existing.approval_status !== 'approved') {
       return res.status(400).json({ message: 'This ticket must be approved before it can be picked up', code: 'NOT_APPROVED' });
     }
-    const result = await Ticket.assignTicket({ ticket_id: req.params.id, assigned_to: req.user.userId });
+    // Transactional: locks the row so two simultaneous clicks can't double-assign
+    // (spec Task 5.4). Throws 409 ALREADY_ASSIGNED if someone grabbed it first.
+    const result = await Ticket.selfAssignAtomic(req.params.id, req.user.userId);
     activity.logReq(req, 'TICKET_ASSIGNED', {
       ticket_id: Number(req.params.id),
       new_value: 'self',
@@ -472,7 +474,7 @@ exports.selfAssign = async (req, res) => {
     res.status(200).json({ message: 'Ticket assigned to you', result });
   } catch (error) {
     console.error('SELF-ASSIGN ERROR:', error.message);
-    res.status(500).json({ message: error.message });
+    res.status(error.status || 500).json({ message: error.message, code: error.code || 'SERVER_ERROR' });
   }
 };
 

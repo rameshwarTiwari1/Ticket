@@ -2,6 +2,7 @@ require("dotenv").config();
 const app = require("./App");
 const { checkSlaBreaches, autoCloseResolvedTickets } = require("./utils/slaChecker");
 const { runAutoAssign } = require("./utils/autoAssign");
+const { runShiftEndNotifications } = require("./utils/shiftEndCron");
 
 const PORT = process.env.PORT || 5000;
 
@@ -37,5 +38,18 @@ app.listen(PORT, () => {
     };
     setInterval(runAuto, autoAssignMs);
     runAuto(); // run once at startup
+
+    // Shift-ending summary emails (spec Task 5.4): notify people ~30 min before
+    // their shift ends. Poll every ~5 min. Same enable flag as auto-assign.
+    const shiftEndMs = Number(process.env.SHIFT_END_INTERVAL_MS) || 5 * 60 * 1000;
+    const runShiftEnd = async () => {
+      try {
+        await runShiftEndNotifications();
+      } catch (err) {
+        console.error("Shift-end job failed:", err.message);
+      }
+    };
+    setInterval(runShiftEnd, shiftEndMs);
+    runShiftEnd(); // run once at startup
   }
 });

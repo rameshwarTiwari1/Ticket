@@ -27,11 +27,16 @@ const norm = (s) => String(s || '').trim().toLowerCase();
 // dropped with a log (we can't safely assign to an unknown register_id).
 const resolveCandidates = async (onShift, orgId) => {
   // console.log("Orginazation ID",orgId);
+  const EXCLUDED_ROLES = ['manager', 'team_lead', 'admin']; // spec 5.1: managers not in the pool
   const out = [];
   for (const p of onShift) {
     const u = await Ticket.resolveUserByRosterName(p.rosterName, orgId);
     if (!u) {
       console.warn(`auto-assign: no unique t_user for roster name "${p.rosterName}" (org ${orgId}) — skipped`);
+      continue;
+    }
+    if (EXCLUDED_ROLES.includes(String(u.role || '').trim().toLowerCase())) {
+      console.log(`auto-assign: "${p.rosterName}" is a ${u.role} — excluded from eligible pool`);
       continue;
     }
     out.push({

@@ -67,8 +67,8 @@ const isWithinWindow = (nowMin, startMin, endMin) => {
 const entryIsOnShiftNow = (entry, nowMin) => {
   if (!entry) return false;
   const dayStatus = String(entry.dayStatus || '').toUpperCase();
-  if (dayStatus === 'WEEK_OFF') return false;
-  if (!['FULL_DAY', 'HALF_DAY'].includes(dayStatus)) return false;
+  // Task 5.1 decision: FULL_DAY + present only (half-day people are NOT eligible).
+  if (dayStatus !== 'FULL_DAY') return false;
   if (String(entry.presentyStatus || '').toUpperCase() !== 'P') return false;
   const start = hmsToMinutes(entry.shiftStartTime);
   const end = hmsToMinutes(entry.shiftEndTime);
@@ -129,8 +129,39 @@ const fetchOnShiftUsers = async (rule, now = new Date()) => {
   return { onShift, known, available: true };
 };
 
+// People who are on shift now and whose shift ENDS within `withinMin` minutes
+// (spec Task 5.4). Returns { list: [{ rosterName, userId, endsInMin, shiftEndTime }], available }.
+const fetchShiftEndingSoon = async (rule, now = new Date(), withinMin = 30) => {
+  const data = await fetchRoster(rule);
+  if (!data) return { list: [], available: false };
+
+  const keys = dayKeysFor(now, TIMEZONE);
+  const nowMin = minutesNow(now, TIMEZONE);
+  const list = [];
+
+  for (const [rosterName, byDay] of Object.entries(data)) {
+    if (!byDay || typeof byDay !== 'object') continue;
+    const entry = byDay[keys[0]] || byDay[keys[1]];
+    if (!entryIsOnShiftNow(entry, nowMin)) continue;
+    const endMin = hmsToMinutes(entry.shiftEndTime);
+    if (endMin == null) continue;
+    let remaining = endMin - nowMin;
+    if (remaining < 0) remaining += 24 * 60; // overnight shift wrap
+    if (remaining > 0 && remaining <= withinMin) {
+      list.push({
+        rosterName: rosterName.trim(),
+        userId: entry.userId,
+        endsInMin: remaining,
+        shiftEndTime: entry.shiftEndTime,
+      });
+    }
+  }
+  return { list, available: true };
+};
+
 module.exports = {
   fetchOnShiftUsers,
+  fetchShiftEndingSoon,
   // exported for unit checks
   _internals: { dayKeysFor, minutesNow, hmsToMinutes, isWithinWindow, entryIsOnShiftNow },
 };
