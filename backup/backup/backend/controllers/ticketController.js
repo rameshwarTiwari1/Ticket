@@ -4,6 +4,7 @@ const {
   sendTicketCreatedMail,
   sendApprovalDecisionMail,
   sendTicketAssignedMail,
+  sendTicketReopenedMail,
 } = require('../utils/mailer');
 const { createNotification } = require('../utils/notification');
 const { isApproverForLocation } = require('../models/approverModel');
@@ -35,7 +36,7 @@ const getItTeamEmails = (orgName) => {
   return IT_TEAM_EMAILS_BY_ORG[key] || [];
 };
 
-// ─── CREATE ───────────────────────────────────────────────────────────────────
+// ─── CREATE 
 exports.create = async (req, res) => {
   try {
     const attachmentPath = req.file ? req.file.path : null;
@@ -43,10 +44,10 @@ exports.create = async (req, res) => {
     // and guarantees the ticket's location is the real creator's). README §5.
     const ticketData     = { ...req.body, attachment: attachmentPath, created_by_id: req.user?.userId };
 
-    // ── Save ticket ───────────────────────────────────────────────────────────
+    // ── Save ticket
     const ticket = await Ticket.createTicket(ticketData);
 
-    // ── Fetch creator email from DB ───────────────────────────────────────────
+    // ── Fetch creator email from DB
     let creatorEmail = null;
     if (ticket.created_by) {
       const row = await db.query(
@@ -55,11 +56,19 @@ exports.create = async (req, res) => {
       );
       creatorEmail = row.rows[0]?.email_id || null;
     }
-
+   
     // ── Pass org_name EXPLICITLY from req.body ────────────────────────────────
     // ticket.org_name may be undefined after INSERT RETURNING * (no JOINs).
     // req.body.org_name always has the value the Angular frontend sent.
     const orgName = req.body.org_name || '';
+    let teamName = req.body.team_name || '';
+    if (!teamName && ticket.assigned_team_id) {
+      const teamRow = await db.query(
+        `SELECT team_name FROM T_TEAMS WHERE team_id = $1`,
+        [ticket.assigned_team_id]
+      );
+      teamName = teamRow.rows[0]?.team_name || '';
+    }
 
     // ── Resolve the TEAM MANAGER (head of the ticket's team at its location) and
     //    notify them on creation — NOT the approver/reporting manager (README §10). ─
@@ -68,7 +77,7 @@ exports.create = async (req, res) => {
     );
     const managerEmails = managers.map((m) => m.email_id).filter(Boolean);
 
-    await sendTicketCreatedMail(ticket, creatorEmail, orgName, managerEmails);
+    await sendTicketCreatedMail(ticket, creatorEmail, orgName, managerEmails,teamName);
 
     for (const m of managers) {
       await createNotification(
@@ -397,6 +406,72 @@ exports.update = async (req, res) => {
         description: `Status: ${existing.status_name} → ${req.body.status_name}`,
       });
     }
+    //Reopened Email to send the notification for each email
+    // ── Reopen notification — email everyone involved ──────────────────────
+      if ((req.body.status_name || '').toLowerCase() === 'reopened') {
+        try {
+          // Creator email
+          const creatorRow = await db.query(
+            `SELECT email_id FROM T_USER WHERE register_id = $1`,
+            [existing.created_by_id]
+          );
+          const creatorEmail = creatorRow.rows[0]?.email_id || null;
+
+          // Assignee email (engineer who was working the ticket)
+          let assigneeEmail = null;
+          if (existing.assigned_to_id) {
+            const assigneeRow = await db.query(
+              `SELECT email_id FROM T_USER WHERE register_id = $1`,
+              [existing.assigned_to_id]
+            );
+            assigneeEmail = assigneeRow.rows[0]?.email_id || null;
+          }
+
+          // Team managers
+          const managers = await Ticket.getTeamManagers(
+            existing.assigned_team_id,
+            existing.location_id,
+            existing.org_id
+          );
+          const managerEmails = managers.map(m => m.email_id).filter(Boolean);
+
+          // org_name for transporter selection
+          const orgRow = await db.query(
+            `SELECT org_name FROM T_ORGANIZATION WHERE org_id = $1`,
+            [existing.org_id]
+          );
+          const orgName = orgRow.rows[0]?.org_name || '';
+
+          await sendTicketReopenedMail(
+            existing,       // has ticket_number, subject, priority, issue_name etc.
+            creatorEmail,
+            orgName,
+            managerEmails,
+            assigneeEmail
+          );
+
+          // In-app notifications
+          if (existing.assigned_to_id) {
+            await createNotification(
+              existing.assigned_to_id,
+              Number(req.params.id),
+              `Ticket ${existing.ticket_number} has been reopened by the requester`
+            );
+          }
+          for (const m of managers) {
+            await createNotification(
+              m.register_id,
+              Number(req.params.id),
+              `Ticket ${existing.ticket_number} has been reopened`
+            );
+          }
+        } catch (mailErr) {
+          console.error('REOPEN MAIL ERROR:', mailErr.message);
+          // Don't fail the update response if mail errors
+        }
+      }
+    
+    
 
     res.status(200).json({ message: 'Ticket updated successfully', ticket });
   } catch (error) {

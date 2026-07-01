@@ -204,4 +204,4 @@ export const ORG_WING_MAP: { [org: string]: string } = {
   'AUTOSENSE':     'Chennai',
 };
 
-export const AIROLI_WINGS: string[] = ['A', 'B', 'C','D'];
+export const AIROLI_WINGS: string[] = ['A', 'B', 'C'];

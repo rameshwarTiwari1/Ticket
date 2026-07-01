@@ -645,18 +645,29 @@
 
         <!-- Wing: visible only for Mumbai Airoli / Chennai / Hansa Direct / Autosense -->
         <div class="form-group" *ngIf="showWingDeskFields">
-          <label>Wing <span class="optional-label">(Optional)</span></label>
+          <label>Wing <span class="optional-label"></span></label>
           <select formControlName="wing_name">
             <option value="">Select Wing</option>
             <!-- <option *ngFor="let w of wings" [value]="w.wing_name">{{ w.wing_name }}</option> -->
             <option *ngFor="let w of filteredWings" [value]="w.wing_name">{{ w.wing_name }}</option>
+          
           </select>
+            <span
+                class="field-error"
+                *ngIf="ticketForm.get('wing_name')?.invalid && ticketForm.get('wing_name')?.touched">
+                Wing is required.
+              </span>
         </div>
 
         <!-- Desk Number: visible only for Mumbai Airoli / Chennai / Hansa Direct / Autosense -->
         <div class="form-group" *ngIf="showWingDeskFields">
-          <label>Desk Number <span class="optional-label">(Optional)</span></label>
+          <label>Desk Number <span class="optional-label"></span></label>
           <input type="text" formControlName="desk_number" placeholder="Enter desk number e.g. A-101" />
+           <span
+                class="field-error"
+                *ngIf="ticketForm.get('desk_number')?.invalid && ticketForm.get('desk_number')?.touched">
+                DeskNumber is required.
+              </span>
         </div>
 
         <!-- Email ID (In TO:-) — HIDDEN. This was the legacy way to choose who
@@ -812,7 +823,7 @@
               <th>Raise Date</th>
               <th>Raise At</th>
               <th>Action</th>
-              <th></th>
+              <!-- <th></th> -->
             </tr>
           </thead>
 
@@ -1488,7 +1499,7 @@
           <span class="value">{{ selectedTicket.additional_email || 'N/A' }}</span>
         </div>
 
-        <div class="detail-row">
+        <!-- <div class="detail-row">
           <span class="label">Attachment</span>
           <span class="value">
             <ng-container *ngIf="selectedTicket?.attachment; else noAttachment">
@@ -1503,7 +1514,7 @@
               N/A
             </ng-template>
           </span>
-        </div>
+        </div> -->
 
         <!-- Modal to show the image -->
         <div class="attachment-modal" *ngIf="showAttachmentModal" (click)="closeAttachmentModal()">

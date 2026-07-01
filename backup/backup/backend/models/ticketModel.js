@@ -121,7 +121,8 @@ const TICKET_SELECT = `
   t.rating,
   t.experience,
   t.rated_at,
-  u1.email_id AS creator_email
+  u1.email_id AS creator_email,
+  t.desk_number
 `;
 
 const TICKET_JOINS = `
@@ -144,7 +145,7 @@ const wing_id = data.wing_id ? parseInt(data.wing_id) : null;
 console.log(" wing_id received:", data.wing_id);
   const ticket_number    = generateTicketNumber();
   const sla_due_at       = calculateSLA(data.priority);
-  console.log(data);
+  // console.log(data);
   // Generate a unique approval token for this ticket
   const approval_token   = crypto.randomUUID();
 
@@ -266,8 +267,8 @@ console.log("assign_to_user",assigned_to_user);
       type_id, issue_id, assigned_team_id, status_id, priority,
       email_id, additional_email, attachment, sla_due_at,
       client_id, org_id, location_id,
-      approval_status, approval_token, wing_id, approver_email
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      approval_status, approval_token, wing_id, approver_email,desk_number
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
     RETURNING *
   `, [
     ticket_number,
@@ -291,7 +292,9 @@ console.log("assign_to_user",assigned_to_user);
     'pending',      // approval_status starts as pending
     approval_token,
     wing_id,
-    approver_email
+    approver_email,
+    data.desk_number || null
+    
   ]);
 
   return {
@@ -492,7 +495,9 @@ exports.updateTicket = async (id, data) => {
       resolved_at      = COALESCE($12, resolved_at),
       closed_at        = COALESCE($13, closed_at),
       client_id        = COALESCE($14, client_id),
-      approver_email   = COALESCE($15, approver_email)
+      approver_email   = COALESCE($15, approver_email),
+      wing_id           = COALESCE($17, wing_id),
+      desk_number       = COALESCE($18, desk_number)
     WHERE ticket_id = $16
     RETURNING *
   `;
@@ -512,7 +517,9 @@ exports.updateTicket = async (id, data) => {
     closed_at,
     client_id          || null,
     approver_email     || null,
-    id
+    id,
+    data.wing_id      || null,
+    data.desk_number || null
   ];
 
   const { rows } = await db.query(query, values);
@@ -723,10 +730,14 @@ exports.countOpenByAssignee = async (userIds) => {
   return out;
 };
 
+//
+
+
 // Resolve a roster display name ("nilesh mishra") to a t_user row, scoped to the
 // org only (NOT team/location — the roster owns "who", t_user only supplies the
 // register_id). Returns the single match, or null if 0 or >1 match (ambiguous).
 exports.resolveUserByRosterName = async (rosterName, orgId) => {
+  // console.log("Roaster Name",rosterName);
   if (!rosterName || !rosterName.trim()) return null;
   const { rows } = await db.query(
     `SELECT register_id, first_name, last_name, email_id

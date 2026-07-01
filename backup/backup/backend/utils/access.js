@@ -37,15 +37,19 @@ function ticketVisibilityScope(user, opts = {}) {
     return { clause: 'TRUE', values };
   }
 
-  // MANAGER: tickets for THEIR org + location + team only (notes §3) — never
-  // another org, location, or team. (So a DBA manager sees only DBA tickets at
-  // their office/org; an IT Services manager never sees DBA tickets.)
+  // MANAGER: their team's tickets (own org + location + team), PLUS any ticket
+  // THEY raised themselves — even when it routes to another team (README §3:
+  // "View own tickets raised by them" applies to Managers too). So an IT Services
+  // manager who opens a DBA ticket still sees it in their own list, while still
+  // never seeing OTHER people's DBA/other-team tickets.
   if (isManager(user)) {
+    const created = next(user.userId);
     const loc  = next(user.location_id);
     const team = next(user.team_id);
     const org  = next(user.org_id);
     return {
-      clause: `t.location_id = ${loc} AND t.assigned_team_id = ${team} AND t.org_id = ${org}`,
+      clause: `(t.created_by = ${created} OR ` +
+              `(t.location_id = ${loc} AND t.assigned_team_id = ${team} AND t.org_id = ${org}))`,
       values,
     };
   }
@@ -87,7 +91,8 @@ function managerOwnsTicket(user, ticket) {
 function canViewTicket(user, ticket) {
   if (!ticket) return false;
   if (isAdmin(user)) return true;
-  if (isManager(user)) return managerOwnsTicket(user, ticket);
+  if (isManager(user)) return managerOwnsTicket(user, ticket)
+      || Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId);
   if (isEmployee(user)) {
     // a ticket they raised is always visible to them
     if (Number(ticket.created_by_id ?? ticket.created_by) === Number(user.userId)) return true;

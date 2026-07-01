@@ -36,22 +36,63 @@ const transporterHD = emailer.createTransport({
 //     "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["itchennai@autosenseindia.com"], transporter: "hd" },
 //   },
 // };
+// const teamEmails = {
+//   "hansa cequity": {
+//     "IT/HELP_DESK": { from: process.env.SMTP_USER_HC, to: ["servicedesk@hansacequity.com"], transporter: "hc" },
+//     "DBA":          { from: process.env.SMTP_USER_HC, to: ["suraj.jogale@hansacequity.com"], transporter: "hc" },
+//   },
+//   "hansa direct": {
+//     "CRM":          { from: process.env.SMTP_USER_HD, to: ["crm@hansadirect.com"], transporter: "hd" },
+//     "MIS":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com","ashish.jadhav@hansadirect.com","dakshata.dalavi@hansadirect.com"], transporter: "hd" },
+//     "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" },
+//     "DBA":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" }, // ✅ ADD
+//   },
+//   "autosense": {
+//     "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["itchennai@autosenseindia.com"], transporter: "hd" },
+//     "DBA":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" }, // ✅ ADD
+//   },
+// };
+
 const teamEmails = {
   "hansa cequity": {
     "IT/HELP_DESK": { from: process.env.SMTP_USER_HC, to: ["servicedesk@hansacequity.com"], transporter: "hc" },
-    "DBA":          { from: process.env.SMTP_USER_HC, to: ["suraj.jogale@hansacequity.com"], transporter: "hc" },
+    "DBA":          { from: process.env.SMTP_USER_HC, to: ["dbasupport@hansacequity.com"], transporter: "hc" },
   },
   "hansa direct": {
     "CRM":          { from: process.env.SMTP_USER_HD, to: ["crm@hansadirect.com"], transporter: "hd" },
-    "MIS":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com","ashish.jadhav@hansadirect.com","dakshata.dalavi@hansadirect.com"], transporter: "hd" },
-    "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" },
-    "DBA":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" }, // ✅ ADD
+    "MIS":          { from: process.env.SMTP_USER_HD, to: ["abhishek.sharma@hansadirect.com","ashish.jadhav@hansadirect.com","dakshata.dalavi@hansadirect.com"], transporter: "hd" },
+    "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["helpdesk@hansadirect.com"], transporter: "hd" },
+    "DBA":          { from: process.env.SMTP_USER_HD, to: ["dbasupport@hansacequity.com"], transporter: "hd" }, // ✅ ADD
   },
   "autosense": {
     "IT/HELP_DESK": { from: process.env.SMTP_USER_HD, to: ["itchennai@autosenseindia.com"], transporter: "hd" },
-    "DBA":          { from: process.env.SMTP_USER_HD, to: ["suraj.jogale@hansacequity.com"], transporter: "hd" }, // ✅ ADD
+    "DBA":          { from: process.env.SMTP_USER_HD, to: ["dbasupport@hansacequity.com"], transporter: "hd" }, // ✅ ADD
   },
 };
+
+// Move/import this so mailer.js and ticketController.js share one definition
+const normalizeTeamKey = (teamName) => {
+  const t = (teamName || '').toUpperCase().trim();
+  if (t === 'IT SERVICES' || t === 'IT SERVICE' || t === 'HELP DESK' || t === 'HELPDESK') {
+    return 'IT/HELP_DESK';
+  }
+  return t; // CRM, MIS, DBA etc. presumably already match
+};
+
+const getTeamEmailConfig = (orgName, teamName) => {
+  console.log("Team Name",teamName);
+  console.log("OrgName",orgName);
+  const org  = (orgName || '').toLowerCase().trim();
+  const team = normalizeTeamKey(teamName);
+  const entry = teamEmails[org]?.[team];
+  if (!entry) {
+    logger.warn(`⚠️ No teamEmails entry for org="${org}" team="${team}" (raw="${teamName}")`);
+    return null;
+  }
+  return entry;
+};
+
+
 
 // ─── PICK CORRECT TRANSPORTER ─────────────────────────────────────────────────
 const getTransporter = (key) => key === "hc" ? transporterHC : transporterHD;
@@ -138,6 +179,17 @@ const buildTicketHtml = (heading, ticket, assignedLabel) => `
     <tr><td style="padding:8px;"><b>Client</b></td><td style="padding:8px;">${ticket.client_name || 'N/A'}</td></tr>
     <tr style="background:#f5f5f5;"><td style="padding:8px;"><b>Description</b></td><td style="padding:8px;">${ticket.description || 'N/A'}</td></tr>
     <tr><td style="padding:8px;"><b>SLA Due</b></td><td style="padding:8px;">${ticket.sla_due_at ? new Date(ticket.sla_due_at).toLocaleString() : 'N/A'}</td></tr>
+    <tr><td style="padding:8px;"><b>Desk Number</b></td><td style="padding:8px;">${ticket.desk_number}</td></tr>
+    <tr style="background:#f5f5f5;">
+  <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+  <td style="padding:8px;border:1px solid #ddd;">
+    ${{
+      3: 'A',
+      4: 'B',
+      5: 'C'
+    }[ticket.wing_id] || 'N/A'}
+  </td>
+</tr>
   </table>
   <p style="color:#666;font-size:13px;">Please log in to the portal to view or update this ticket.</p>
 `;
@@ -151,10 +203,11 @@ const buildTicketHtml = (heading, ticket, assignedLabel) => `
 // @param orgName      — EXPLICITLY passed from the controller (req.body.org_name)
 //                       ALWAYS use this — never rely on ticket.org_name alone.
 //
-const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmails = []) => {
+const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmails = [],teamName = '') => {
   try {
     // ── Use explicit orgName; fallback to ticket.org_name only as last resort ──
     const resolvedOrg = (orgName || ticket.org_name || '').toLowerCase().trim();
+    const resolvedTeam = teamName || ticket.team_name || '';
     const assignedTo  = (ticket.assigned_to_name || '').toUpperCase().trim();
 
     // ── Single-point transporter resolution ──────────────────────────────────
@@ -167,7 +220,14 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmail
     // ── Team manager recipients (the HEAD of the ticket's team — e.g. the head
     //    of IT Service — resolved from the DB by the controller). This REPLACES
     //    the old hardcoded distribution list. ──────────────────────────────────
-    const teamMgrList = (managerEmails || []).filter(Boolean);
+    // const teamMgrList = (managerEmails || []).filter(Boolean);
+    // if (!teamMgrList.length) {
+    // const teamConfig = getTeamEmailConfig(resolvedOrg, ticket.team_name);
+    console.log("Org:", resolvedOrg);
+    console.log("Team:", resolvedTeam);
+    const teamConfig = getTeamEmailConfig(resolvedOrg, resolvedTeam);
+    console.log("Team Config:", teamConfig);
+    const teamMgrList = [...new Set([...(managerEmails || []), ...(teamConfig?.to || [])])].filter(Boolean);
     if (!teamMgrList.length) {
       logger.warn(`⚠️ No team manager found for ticket ${ticket.ticket_number} ` +
                   `(team=${ticket.assigned_team_id}, location=${ticket.location_id}). ` +
@@ -175,7 +235,7 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmail
     }
 
     // ── Build approval button URLs ────────────────────────────────────────────
-    const baseUrl    = process.env.APP_BASE_URL || `http://192.168.5.39:${process.env.PORT || 3008}`;
+    const baseUrl    = process.env.APP_BASE_URL || `http://192.168.5.245:${process.env.PORT || 3008}`;
     const approveUrl = `${baseUrl}/api/tickets-generate/approve/${ticket.approval_token}?action=approved`;
     const rejectUrl  = `${baseUrl}/api/tickets-generate/approve/${ticket.approval_token}?action=not_approved`;
 
@@ -194,6 +254,18 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmail
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Assigned Team</b></td><td style="padding:8px;border:1px solid #ddd;">${assignedTo || 'IT Team'}</td></tr>
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Description</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.description || 'N/A'}</td></tr>
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>SLA Due</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.sla_due_at ? new Date(ticket.sla_due_at).toLocaleString() : 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Desk number</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.desk_number}</td></tr>
+          <tr style="background:#f5f5f5;">
+          <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+          <td style="padding:8px;border:1px solid #ddd;">
+            ${{
+              3: 'A',
+              4: 'B',
+              5: 'C',
+            
+    }[ticket.wing_id] || 'N/A'}
+  </td>
+</tr>
         </table>
         <p style="font-weight:bold;margin-bottom:12px;">Please take action on this ticket:</p>
         <div style="text-align:center;margin:24px 0;">
@@ -228,6 +300,17 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmail
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Issue</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.issue_name || 'N/A'}</td></tr>
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Description</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.description || 'N/A'}</td></tr>
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>SLA Due</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.sla_due_at ? new Date(ticket.sla_due_at).toLocaleString() : 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>SLA Due</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.desk_number}</td></tr>
+          <tr style="background:#f5f5f5;">
+          <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+          <td style="padding:8px;border:1px solid #ddd;">
+            ${{
+              3: 'A',
+              4: 'B',
+              5: 'C'
+            }[ticket.wing_id] || 'N/A'}
+          </td>
+        </tr>
         </table>
         <p style="color:#666;font-size:13px;margin-top:16px;">No action is required from you at this time.</p>
       </div>
@@ -244,6 +327,17 @@ const sendTicketCreatedMail = async (ticket, creatorEmail, orgName, managerEmail
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Subject</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.subject}</td></tr>
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Priority</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.priority}</td></tr>
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Status</b></td><td style="padding:8px;border:1px solid #ddd;">Pending Approval</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Deks Number</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.desk_number}</td></tr>
+          <tr style="background:#f5f5f5;">
+        <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+        <td style="padding:8px;border:1px solid #ddd;">
+          ${{
+            3: 'A',
+            4: 'B',
+            5: 'C'
+          }[ticket.wing_id] || 'N/A'}
+        </td>
+      </tr>
         </table>
       </div>
     `;
@@ -329,6 +423,16 @@ const sendApprovalDecisionMail = async (ticket, decision, approverEmail, creator
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Decision By</b></td><td style="padding:8px;border:1px solid #ddd;">${approverEmail}</td></tr>
           <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Decision</b></td><td style="padding:8px;border:1px solid #ddd;color:${decisionColor};font-weight:bold;">${decisionLabel}</td></tr>
           <tr><td style="padding:8px;border:1px solid #ddd;"><b>Decided At</b></td><td style="padding:8px;border:1px solid #ddd;">${new Date().toLocaleString()}</td></tr>
+          <tr style="background:#f5f5f5;">
+          <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+          <td style="padding:8px;border:1px solid #ddd;">
+            ${{
+              3: 'A',
+              4: 'B',
+              5: 'C'
+            }[ticket.wing_id] || 'N/A'}
+          </td>
+        </tr>
         </table>
         <p style="color:#666;font-size:13px;margin-top:16px;">Please log in to the portal to view full ticket details.</p>
       </div>
@@ -340,6 +444,8 @@ const sendApprovalDecisionMail = async (ticket, decision, approverEmail, creator
       await sendMail(creatorEmail, subject, html, [], tFrom, tKey);
       logger.info(`✅ Decision mail sent via "${tKey}" to owner → ${creatorEmail}`);
     }
+    const teamConfig = getTeamEmailConfig(resolvedOrg, ticket.team_name);
+    itTeamEmails = [...new Set([...(itTeamEmails || []), ...(teamConfig?.to || [])])];
     if (itTeamEmails && itTeamEmails.length > 0) {
       await sendMail(itTeamEmails.join(','), subject, html, [], tFrom, tKey);
       logger.info(`✅ Decision mail sent via "${tKey}" to IT team → ${itTeamEmails.join(', ')}`);
@@ -390,6 +496,14 @@ const sendTicketAssignedMail = async (ticket, assigneeEmail, creatorEmail) => {
 
   const tKey  = resolveTransporterKey(ticket.org_name);
   const tFrom = resolveFromEmail(ticket.org_name);
+  console.log('[DEBUG sendTicketAssignedMail] ticket.org_name =', JSON.stringify(ticket.org_name));
+console.log('[DEBUG sendTicketAssignedMail] ticket.team_name =', JSON.stringify(ticket.team_name));
+console.log('[DEBUG sendTicketAssignedMail] normalized team  =', normalizeTeamKey(ticket.team_name));
+
+  const teamConfig = getTeamEmailConfig(ticket.org_name, ticket.team_name);
+  console.log('[DEBUG sendTicketAssignedMail] teamConfig =', JSON.stringify(teamConfig));
+
+  const teamCc = teamConfig?.to || [];
 
   const html = `
     <h3>Ticket Assigned to You</h3>
@@ -404,6 +518,18 @@ const sendTicketAssignedMail = async (ticket, assigneeEmail, creatorEmail) => {
       <tr style="background:#f5f5f5;"><td style="padding:8px;border-bottom:1px solid #eee;"><b>Status</b></td><td style="padding:8px;border-bottom:1px solid #eee;">In Progress</td></tr>
       <tr><td style="padding:8px;border-bottom:1px solid #eee;"><b>SLA Due</b></td><td style="padding:8px;border-bottom:1px solid #eee;">${ticket.sla_due_at ? new Date(ticket.sla_due_at).toLocaleString() : 'N/A'}</td></tr>
       <tr style="background:#f5f5f5;"><td style="padding:8px;border-bottom:1px solid #eee;"><b>Description</b></td><td style="padding:8px;border-bottom:1px solid #eee;">${ticket.description || 'N/A'}</td></tr>
+      <tr style="background:#f5f5f5;"><td style="padding:8px;border-bottom:1px solid #eee;"><b>Desk Number</b></td><td style="padding:8px;border-bottom:1px solid #eee;">${ticket.desk_number}</td></tr>
+      
+      <tr style="background:#f5f5f5;">
+      <td style="padding:8px;border:1px solid #ddd;"><b>Wing Name</b></td>
+      <td style="padding:8px;border:1px solid #ddd;">
+        ${{
+          3: 'A',
+          4: 'B',
+          5: 'C'
+        }[ticket.wing_id] || 'N/A'}
+      </td>
+    </tr>
     </table>
     <p style="color:#666;font-size:13px;margin-top:16px;">Please log in to the portal to view or update this ticket.</p>
   `;
@@ -413,16 +539,62 @@ const sendTicketAssignedMail = async (ticket, assigneeEmail, creatorEmail) => {
     .replace('A support ticket has been assigned. Please review and take action.', 'Your ticket has been assigned to a team member. You will be notified of any updates.');
 
   if (assigneeEmail) {
-    await sendMail(assigneeEmail, `Ticket Assigned: ${ticket.ticket_number} | ${ticket.subject}`, html, [], tFrom, tKey);
+    await sendMail(assigneeEmail, `Ticket Assigned: ${ticket.ticket_number} | ${ticket.subject}`, html, teamCc, tFrom, tKey);
     logger.info(`✅ Assignee mail sent via "${tKey}" → ${assigneeEmail}`);
   }
   if (creatorEmail && creatorEmail !== assigneeEmail) {
-    await sendMail(creatorEmail, `Your Ticket Has Been Assigned: ${ticket.ticket_number}`, creatorHtml, [], tFrom, tKey);
+    await sendMail(creatorEmail, `Your Ticket Has Been Assigned: ${ticket.ticket_number}`, creatorHtml, teamCc, tFrom, tKey);
     logger.info(`✅ Creator mail sent via "${tKey}" → ${creatorEmail}`);
   }
   logger.info(`📧 Assignment complete for ${ticket.ticket_number}`);
 };
 
+
+const sendTicketReopenedMail = async (ticket, creatorEmail, orgName, managerEmails, assigneeEmail) => {
+  try {
+    const tKey  = resolveTransporterKey(orgName);
+    const tFrom = resolveFromEmail(orgName);
+    const teamConfig = getTeamEmailConfig(orgName, ticket.team_name);  
+    const staticTeamEmails = teamConfig?.to || [];   
+
+    const html = `
+      <div style="font-family:sans-serif;font-size:14px;max-width:600px;">
+        <h3 style="color:#f59e0b;">🔄 Ticket Reopened</h3>
+        <p>Ticket <b>#${ticket.ticket_number}</b> — <b>${ticket.subject}</b> has been <b>Reopened</b> by the requester.</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;">
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Ticket No</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.ticket_number}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Subject</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.subject}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Priority</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.priority}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #ddd;"><b>Issue</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.issue_name || 'N/A'}</td></tr>
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Raised By</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.created_by_name || 'N/A'}</td></tr>
+         
+          <tr style="background:#f5f5f5;"><td style="padding:8px;border:1px solid #ddd;"><b>Desk Number</b></td><td style="padding:8px;border:1px solid #ddd;">${ticket.desk_number}</td></tr>
+        </table>
+        <p style="color:#666;font-size:13px;margin-top:16px;">Please log in to the portal to review and take action.</p>
+      </div>
+    `;
+
+    const subject = `[Reopened] Ticket #${ticket.ticket_number} — ${ticket.subject}`;
+
+    const recipients = [
+      ...(managerEmails || []),
+      ...(assigneeEmail ? [assigneeEmail] : []),
+      ...staticTeamEmails,
+      ...(creatorEmail  ? [creatorEmail]  : []),
+      
+    ].filter(Boolean);
+
+    const uniqueRecipients = [...new Set(recipients)];
+
+    for (const to of uniqueRecipients) {
+      await sendMail(to, subject, html, [], tFrom, tKey);
+    }
+
+    logger.info(`✅ Reopen mail sent via "${tKey}" → ${uniqueRecipients.join(', ')}`);
+  } catch (err) {
+    logger.error(`❌ sendTicketReopenedMail error: ${err.message}`);
+  }
+};
 module.exports = {
   sendMail,
   sendOtpMail,
@@ -431,4 +603,6 @@ module.exports = {
   sendTicketUpdatedMail,
   sendTicketAssignedMail,
   sendApprovalDecisionMail,
+  sendTicketReopenedMail,
+  getTeamEmailConfig
 };

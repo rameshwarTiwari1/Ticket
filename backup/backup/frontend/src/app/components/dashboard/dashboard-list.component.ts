@@ -83,7 +83,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   filteredAssignUsers: User[] = [];
 
   Math = Math;
-  entriesOptions = [6, 12, 18, 24];
+  entriesOptions = [6, 12, 18, 24,50];
 
   dashboardPagination: PaginationConfig = { page: 1, perPage: 6, total: 0, showingFrom: 0, showingTo: 0 };
   ticketsPagination:   PaginationConfig = { page: 1, perPage: 9, total: 0, showingFrom: 0, showingTo: 0 };
@@ -137,7 +137,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   clients:   Client[]   = [];
 
   showAiroliWingSelector = false;
-  airoliWings: string[] = ['A', 'B', 'C', 'D'];
+  airoliWings: string[] = ['A', 'B', 'C'];
 
   /* ---------------- DATE FILTER STATE ---------------- */
   selectedRange: 'thisWeek' | 'lastWeek' | 'allTime' | 'custom' | 'currentMonth' | 'lastMonth' | 'halfYearly' | 'yearly' = 'thisWeek';
@@ -406,11 +406,38 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   /* ============================================================
      WING / DESK VISIBILITY
   ============================================================ */
+  // private updateWingDeskVisibility(): void {
+  //   if (!this.currentUser) { this.showWingDeskFields = false; return; }
+  //   const org = (this.currentUser.orgName || '').toLowerCase().trim();
+  //   this.showWingDeskFields = org.includes('hansa direct') || org.includes('autosense');
+  // }
+
   private updateWingDeskVisibility(): void {
-    if (!this.currentUser) { this.showWingDeskFields = false; return; }
-    const org = (this.currentUser.orgName || '').toLowerCase().trim();
-    this.showWingDeskFields = org.includes('hansa direct') || org.includes('autosense');
+  if (!this.currentUser) { this.showWingDeskFields = false; return; }
+
+  const org      = (this.currentUser.orgName || '').toLowerCase().trim();
+  const isAiroli = org.includes('hansa direct');     // Airoli → mandatory
+  const isAutosense = org.includes('autosense');     // Chennai → shown, NOT mandatory (per your current ask)
+
+  this.showWingDeskFields = isAiroli || isAutosense;
+
+  const wingCtrl = this.ticketForm.get('wing_name');
+  const deskCtrl = this.ticketForm.get('desk_number');
+
+  if (isAiroli) {
+    wingCtrl?.setValidators([Validators.required]);
+    deskCtrl?.setValidators([Validators.required]);
+  } else {
+    wingCtrl?.clearValidators();
+    deskCtrl?.clearValidators();
+    // also clear any stale value/error state from a previous Airoli session
+    wingCtrl?.setErrors(null);
+    deskCtrl?.setErrors(null);
   }
+
+  wingCtrl?.updateValueAndValidity();
+  deskCtrl?.updateValueAndValidity();
+}
 
   /* ============================================================
      ngOnInit
